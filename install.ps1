@@ -16,6 +16,19 @@
     $ru = (Get-UICulture).TwoLetterISOLanguageName -eq 'ru'
     function Say([string]$r, [string]$e) { if ($ru) { Write-Host $r } else { Write-Host $e } }
 
+    # curl.exe (built into Windows 10 and 11) is fast and shows a progress bar; .NET otherwise.
+    function Get-File([string]$url, [string]$out, [switch]$Quiet) {
+        $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
+        if (Test-Path $curl) {
+            $ErrorActionPreference = 'Continue'
+            $bar = if ($Quiet) { '-s' } else { '--progress-bar' }
+            & $curl -fL $bar --retry 3 --retry-delay 2 --connect-timeout 20 -o $out $url
+            if ($LASTEXITCODE -eq 0) { return }
+            $ErrorActionPreference = 'Stop'
+        }
+        (New-Object Net.WebClient).DownloadFile($url, $out)
+    }
+
     # The native architecture, also when this PowerShell runs emulated on ARM.
     $arch = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment').PROCESSOR_ARCHITECTURE
     $asset = if ($arch -eq 'ARM64') { 'Snowdrift-Windows-ARM64.zip' } else { 'Snowdrift-Windows-x64.zip' }
@@ -34,10 +47,15 @@
     New-Item -ItemType Directory -Path $tmp | Out-Null
     try {
         $files = "https://github.com/$repo/releases/latest/download"
-        Say "Скачиваю Snowdrift ($asset)..." "Downloading Snowdrift ($asset)..."
+        Say "Скачиваю Snowdrift ($asset, около 70 МБ: внутри всё нужное для работы, ставить ничего больше не надо)..." `
+            "Downloading Snowdrift ($asset, about 70 MB: everything it needs is inside)..."
         $zip = Join-Path $tmp $asset
-        Invoke-WebRequest -UseBasicParsing -Uri "$files/$asset" -OutFile $zip
-        Invoke-WebRequest -UseBasicParsing -Uri "$files/SHA256SUMS.txt" -OutFile (Join-Path $tmp 'SHA256SUMS.txt')
+        $started = Get-Date
+        Get-File "$files/$asset" $zip
+        Get-File "$files/SHA256SUMS.txt" (Join-Path $tmp 'SHA256SUMS.txt') -Quiet
+        $mb = [math]::Round((Get-Item $zip).Length / 1MB)
+        $sec = [math]::Max(1, [math]::Round(((Get-Date) - $started).TotalSeconds))
+        Say "Скачано: $mb МБ за $sec с. Проверяю контрольную сумму..." "Downloaded $mb MB in $sec s. Checking the checksum..."
 
         $line = Get-Content (Join-Path $tmp 'SHA256SUMS.txt') | Where-Object { ($_ -split '\s+')[-1].TrimStart('*') -eq $asset } | Select-Object -First 1
         $actual = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash
@@ -45,9 +63,10 @@
             Say 'Контрольная сумма не совпала — ничего не изменено.' 'Checksum mismatch — nothing was changed.'
             return
         }
-        Say 'Контрольная сумма совпала.' 'Checksum verified.'
+        Say 'Контрольная сумма совпала. Распаковываю...' 'Checksum verified. Unpacking...'
 
-        Expand-Archive -Path $zip -DestinationPath (Join-Path $tmp 'new') -Force
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [IO.Compression.ZipFile]::ExtractToDirectory($zip, (Join-Path $tmp 'new'))
         $fresh = Join-Path $tmp 'new\Snowdrift.exe'
         $version = ((Get-Item $fresh).VersionInfo.ProductVersion -split '\+')[0]
 
@@ -58,6 +77,7 @@
             $_.WaitForExit(5000) | Out-Null
         }
 
+        Say "Устанавливаю в $target..." "Installing to $target..."
         New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
         for ($i = 0; ; $i++) {
             try { Copy-Item -Path $fresh -Destination $target -Force; break }
@@ -74,7 +94,10 @@
         $link.WorkingDirectory = Split-Path $target
         $link.Save()
 
-        if (-not $env:SNOWDRIFT_NO_START) { Start-Process -FilePath $target }
+        if (-not $env:SNOWDRIFT_NO_START) {
+            Say 'Запускаю...' 'Starting...'
+            Start-Process -FilePath $target
+        }
         Say "Готово: Snowdrift $version — $target" "Done: Snowdrift $version — $target"
         Say 'Снежинка — в трее справа внизу. Дальше Snowdrift обновляется сам, или запустите эту команду ещё раз.' 'The snowflake is in the tray. Snowdrift updates itself from now on, or run this command again.'
     }

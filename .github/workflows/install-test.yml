@@ -1,0 +1,45 @@
+name: Install commands
+
+# Runs the one-command install exactly as people do (from this commit's script), twice:
+# a fresh install, then an update over the running copy.
+on:
+  push:
+    branches: [main]
+    paths: [install.ps1, install.sh, .github/workflows/install-test.yml]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install, then update (Windows PowerShell)
+        shell: powershell
+        run: |
+          $cmd = "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/install.ps1"
+          $t = Measure-Command { irm $cmd | iex | Out-Host }
+          "first run: $([math]::Round($t.TotalSeconds)) s"
+          Start-Sleep -Seconds 4
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\Snowdrift\Snowdrift.exe'
+          $first = Get-Process Snowdrift -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe }
+          "installed: $((Get-Item $exe).VersionInfo.ProductVersion), running: $([bool]$first)"
+          $t = Measure-Command { irm $cmd | iex | Out-Host }
+          "second run (update): $([math]::Round($t.TotalSeconds)) s"
+          Start-Sleep -Seconds 4
+          $second = Get-Process Snowdrift -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe }
+          "after update: running $([bool]$second), restarted $($first -and $second -and $first.Id -ne $second.Id), Start menu: $(Test-Path (Join-Path ([Environment]::GetFolderPath('Programs')) 'Snowdrift.lnk'))"
+          Get-Process Snowdrift -ErrorAction SilentlyContinue | Stop-Process -Force
+          if (-not ($first -and $second -and $first.Id -ne $second.Id)) { Write-Error "install/update did not work"; exit 1 }
+
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - name: Install, then update
+        run: |
+          cmd="https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/install.sh"
+          curl -fsSL "$cmd" | SNOWDRIFT_NO_START=1 bash
+          curl -fsSL "$cmd" | SNOWDRIFT_NO_START=1 bash
+          v="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' /Applications/Snowdrift.app/Contents/Info.plist)"
+          echo "installed: $v"
+          codesign --verify --deep --strict /Applications/Snowdrift.app && echo "signature ok"
