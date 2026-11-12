@@ -47,6 +47,33 @@ namespace Snowdrift
             return bmp;
         }
 
+        /// <summary>Puts premultiplied snow pixels over an opaque picture, the way the screen does:
+        /// out = snow + picture * (1 - snow alpha). Glows (colour brighter than alpha) add light.</summary>
+        public static void Over(Bitmap dst, byte[] src, int w, int h)
+        {
+            var data = dst.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format32bppPArgb);
+            try
+            {
+                var row = new byte[w * 4];
+                for (int y = 0; y < h; y++)
+                {
+                    IntPtr line = data.Scan0 + y * data.Stride;
+                    Marshal.Copy(line, row, 0, w * 4);
+                    int o = y * w * 4;
+                    for (int x = 0; x < w * 4; x += 4)
+                    {
+                        int a = src[o + x + 3];
+                        int k = 255 - a;
+                        for (int c = 0; c < 3; c++)
+                            row[x + c] = (byte)Math.Min(255, src[o + x + c] + row[x + c] * k / 255);
+                        row[x + 3] = (byte)Math.Min(255, a + row[x + 3] * k / 255);
+                    }
+                    Marshal.Copy(row, 0, line, w * 4);
+                }
+            }
+            finally { dst.UnlockBits(data); }
+        }
+
         public static GraphicsPath Rounded(RectangleF r, float radius)
         {
             var p = new GraphicsPath();
@@ -84,7 +111,6 @@ namespace Snowdrift
                               $"snow {st.snow:0}, maxH {o.Sim.DebugMaxHeight():0.0}, covered {o.Covered}, visibility {o.Visibility:0.00}, " +
                               $"hiddenForApp {hiddenForApp}, fg class {(fg.Hwnd != IntPtr.Zero ? Native.ClassName(fg.Hwnd) : "-")}");
                     byte[] px = o.Capture(out int w, out int h);
-                    using var snow = Png.FromPixels(px, w, h);
                     using var bmp = new Bitmap(w, h, PixelFormat.Format32bppPArgb);
                     using (var g = Graphics.FromImage(bmp))
                     {
@@ -97,8 +123,8 @@ namespace Snowdrift
                             using var tp = new Pen(Color.FromArgb(230, 80, 255, 120), 1.5f);
                             g.DrawRectangle(tp, t.X0, t.Y0, t.X1 - t.X0, t.Y1 - t.Y0);
                         }
-                        g.DrawImage(snow, 0, 0, w, h);
                     }
+                    Png.Over(bmp, px, w, h);
                     bmp.Save(Path.Combine(Dir, $"screen{i}-{shot}.png"), ImageFormat.Png);
                 }
             }
@@ -237,7 +263,6 @@ namespace Snowdrift
             const int scale = 2;
             int pw = (int)W * scale, ph = (int)H * scale;
             byte[] px = renderer.RenderToPixels(batch, pw, ph, W, H);
-            using var snow = Png.FromPixels(px, pw, ph);
             using var bmp = new Bitmap(pw, ph, PixelFormat.Format32bppPArgb);
             using (var g = Graphics.FromImage(bmp))
             {
@@ -265,9 +290,8 @@ namespace Snowdrift
                 }
                 using (var bar = new SolidBrush(Color.FromArgb(235, 28, 30, 38))) g.FillRectangle(bar, 0, ground, W, H - ground);
                 using (var start = new SolidBrush(Color.FromArgb(70, 140, 255))) g.FillRectangle(start, W / 2 - 120, ground + 14, 20, 20);
-                g.ResetTransform();
-                g.DrawImage(snow, 0, 0, pw, ph);
             }
+            Png.Over(bmp, px, pw, ph);
             bmp.Save(path, ImageFormat.Png);
             var st = sim.DebugStats;
             File.WriteAllText(path + ".txt", $"flakes {st.flakes} debris {st.debris} surfaces {st.surfaces} snow {st.snow:0} maxH {sim.DebugMaxHeight():0.0} balls {sim.Balls.Count} vertices {batch.Count} warp {renderer.IsWarp}");
