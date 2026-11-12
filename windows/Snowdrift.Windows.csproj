@@ -14,6 +14,8 @@
     <RootNamespace>Snowdrift</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Snowdrift.ico</ApplicationIcon>
+    <!-- Only English framework resources: Snowdrift has its own Russian and English texts. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)../VERSION').Trim())</Version>
     <Product>Snowdrift</Product>
     <Company>Snowdrift contributors</Company>
