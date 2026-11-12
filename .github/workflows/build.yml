@@ -70,18 +70,6 @@ jobs:
           Get-Content "$env:APPDATA\Snowdrift\snowdrift.log" -ErrorAction SilentlyContinue
           Get-Content live\log.txt -ErrorAction SilentlyContinue
 
-      - name: Touchpad gestures on the real desktop
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          # Not -Wait: that would also wait for the windows the demo opens.
-          $p = Start-Process -FilePath out/x64/Snowdrift.exe -ArgumentList '--gesture-demo',"$pwd\gestures" -PassThru
-          if (-not $p.WaitForExit(240000)) { Stop-Process -Id $p.Id -Force; Write-Error "gesture demo timed out" }
-          Get-Content gestures\gestures.txt -ErrorAction SilentlyContinue
-          Get-Content gestures.error.txt -ErrorAction SilentlyContinue
-          Get-Content "$env:APPDATA\Snowdrift\snowdrift.log" -Tail 20 -ErrorAction SilentlyContinue
-          if ($p.ExitCode -ne 0) { Write-Error "gesture demo failed ($($p.ExitCode))"; exit 1 }
-
       - name: Updater on a copy
         shell: pwsh
         continue-on-error: true
@@ -115,7 +103,6 @@ jobs:
             snapshot.png.txt
             island.png
             live/
-            gestures/
             update.txt
             *.error.txt
 

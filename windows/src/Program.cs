@@ -24,7 +24,6 @@ namespace Snowdrift
                         case "--selftest": return SelfTest.Run(args[1]) ? 0 : 1;
                         case "--snapshot": return Snapshot.Run(args[1]) ? 0 : 1;
                         case "--island-preview": return IslandPreview.Run(args[1]) ? 0 : 1;
-                        case "--gesture-demo": return GestureDemo.Run(args[1]) ? 0 : 1;
                         case "--update-test": return Updater.RunTest(args[1]);
                     }
                 }

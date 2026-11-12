@@ -157,9 +157,6 @@ namespace Snowdrift
 
         public bool NeedsWindowRefresh = true;
 
-        /// <summary>How visible the snow lying on windows is (0…1); it steps aside while a gesture moves windows.</summary>
-        public float WindowAlpha = 1;
-
         private Rng rng = Rng.Create();
         public float Time { get; private set; }
         private float wind;
@@ -1275,8 +1272,6 @@ namespace Snowdrift
             {
                 int n = s.H.Length;
                 if (n < 3) continue;
-                float layer = s.Kind == Surface.SKind.Window ? WindowAlpha : 1;
-                if (layer < 0.004f) continue;
                 float baseY = s.Kind == Surface.SKind.Floor ? s.Y : s.Y + 1;
                 float prevH = 0;
                 bool prevOK = false;
@@ -1301,7 +1296,7 @@ namespace Snowdrift
                         float xb = s.X0 + (i + 0.5f) * ColW;
                         float xa = xb - ColW;
                         float ya = s.Y - prevH, yb = s.Y - hh;
-                        float aa = MathF.Min(1, prevH / 1.2f) * 0.97f * layer, ab = MathF.Min(1, hh / 1.2f) * 0.97f * layer;
+                        float aa = MathF.Min(1, prevH / 1.2f) * 0.97f, ab = MathF.Min(1, hh / 1.2f) * 0.97f;
                         float sa = MathF.Min(1, prevH / 16), sb = MathF.Min(1, hh / 16);
                         // Body: white on top, a cool shadow towards the base of deep snow.
                         batch.Quad(batch.Flat(xa, ya, 1, 1, 1, aa), batch.Flat(xb, yb, 1, 1, 1, ab),
@@ -1319,7 +1314,7 @@ namespace Snowdrift
                         float tw = MathF.Sin(Time * 1.1f + phase);
                         if (tw > 0.9f)
                         {
-                            float g = (tw - 0.9f) / 0.1f * layer;
+                            float g = (tw - 0.9f) / 0.1f;
                             float xg = s.X0 + (i + 0.5f) * ColW, yg = s.Y - hh + 1.8f;
                             batch.Spr(Sprite.Glow, xg, yg, 6, 6, 0, 0.85f, 0.93f, 1, g * 0.6f, true);
                             batch.Spr(Sprite.Crystal3, xg, yg, 3.4f * g + 0.6f, 3.4f * g + 0.6f, Time * 0.8f + phase, 1, 1, 1, g, true);
@@ -1341,34 +1336,31 @@ namespace Snowdrift
             foreach (var root in Balls)
             {
                 if (root.Below != null || root.Dormant || root.Hidden) continue;
-                float a = 1;
-                if (root.Support is long sid && surfaces.TryGetValue(sid, out var sup) && sup.Kind == Surface.SKind.Window) a = WindowAlpha;
-                if (a < 0.004f) continue;
                 var chain = root.Chain;
-                if (chain.Count >= 2) DrawArms(chain, batch, a);
+                if (chain.Count >= 2) DrawArms(chain, batch);
                 foreach (var b in chain)
                 {
                     if (b == Hover || b == GrabbedBall)
-                        batch.Spr(Sprite.Glow, b.X, b.Y, b.R * 2.1f, b.R * 2.1f, 0, 1, 1, 1, 0.45f * a, true);
+                        batch.Spr(Sprite.Glow, b.X, b.Y, b.R * 2.1f, b.R * 2.1f, 0, 1, 1, 1, 0.45f, true);
                     float hw = b.R * 1.03f;
-                    batch.Spr(Sprite.BallBase, b.X, b.Y, hw, hw, 0, 1, 1, 1, a);
-                    batch.Spr(Sprite.BallTex, b.X, b.Y, hw, hw, b.Angle, 1, 1, 1, 0.9f * a);
+                    batch.Spr(Sprite.BallBase, b.X, b.Y, hw, hw);
+                    batch.Spr(Sprite.BallTex, b.X, b.Y, hw, hw, b.Angle, 1, 1, 1, 0.9f);
                 }
-                if (chain.Count >= 2) DrawFace(chain, batch, a);
+                if (chain.Count >= 2) DrawFace(chain, batch);
             }
         }
 
-        private static void DrawArms(List<Ball> chain, Batch batch, float a)
+        private static void DrawArms(List<Ball> chain, Batch batch)
         {
             var body = chain[chain.Count - 2];
             float br = body.R;
             float hw = br * 0.78f, hh = br * 0.39f;
             float ay = body.Y - br * 0.12f;
-            batch.Spr(Sprite.Twig, body.X + br * 0.78f + hw * 0.92f, ay - hh * 0.24f, hw, hh, 0, 1, 1, 1, a);
-            batch.Spr(Sprite.Twig, body.X - br * 0.78f - hw * 0.92f, ay - hh * 0.24f, hw, hh, 0, 1, 1, 1, a, false, true);
+            batch.Spr(Sprite.Twig, body.X + br * 0.78f + hw * 0.92f, ay - hh * 0.24f, hw, hh);
+            batch.Spr(Sprite.Twig, body.X - br * 0.78f - hw * 0.92f, ay - hh * 0.24f, hw, hh, 0, 1, 1, 1, 1, false, true);
         }
 
-        private static void DrawFace(List<Ball> chain, Batch batch, float a)
+        private static void DrawFace(List<Ball> chain, Batch batch)
         {
             var head = chain[chain.Count - 1];
             var body = chain[chain.Count - 2];
@@ -1379,25 +1371,25 @@ namespace Snowdrift
             // Buttons.
             float[] buttons = chain.Count >= 3 ? new[] { -0.4f, 0f, 0.4f } : new[] { -0.1f, 0.3f };
             foreach (float k in buttons)
-                batch.Spr(Sprite.Coal, body.X, body.Y + k * br, br * 0.085f, br * 0.085f, 0, 1, 1, 1, a);
+                batch.Spr(Sprite.Coal, body.X, body.Y + k * br, br * 0.085f, br * 0.085f);
 
             // Scarf.
             var sc = ScarfColors[(int)((style >> 1) % (uint)ScarfColors.Length)];
             float shh = hr * 0.62f;
-            batch.Spr(Sprite.Scarf, head.X, head.Y + hr * 0.80f + shh * 0.36f, hr * 1.08f, shh, 0, sc.Item1, sc.Item2, sc.Item3, a, false, dir < 0);
+            batch.Spr(Sprite.Scarf, head.X, head.Y + hr * 0.80f + shh * 0.36f, hr * 1.08f, shh, 0, sc.Item1, sc.Item2, sc.Item3, 1, false, dir < 0);
 
             // Eyes, smile, carrot.
             float fx = head.X + dir * hr * 0.06f;
             foreach (float side in new[] { -1f, 1f })
-                batch.Spr(Sprite.Coal, fx + side * hr * 0.31f, head.Y - hr * 0.20f, hr * 0.115f, hr * 0.115f, 0, 1, 1, 1, a);
+                batch.Spr(Sprite.Coal, fx + side * hr * 0.31f, head.Y - hr * 0.20f, hr * 0.115f, hr * 0.115f);
             for (int k = -2; k <= 2; k++)
-                batch.Spr(Sprite.Coal, fx + k * hr * 0.14f, head.Y + hr * 0.50f - k * k * hr * 0.04f, hr * 0.05f, hr * 0.05f, 0, 1, 1, 1, a);
+                batch.Spr(Sprite.Coal, fx + k * hr * 0.14f, head.Y + hr * 0.50f - k * k * hr * 0.04f, hr * 0.05f, hr * 0.05f);
             float len = hr * 0.95f;
-            batch.Spr(Sprite.Carrot, fx + dir * len * 0.5f, head.Y + hr * 0.10f, len * 0.5f, len * 0.2f, dir * 0.10f, 1, 1, 1, a, false, dir < 0);
+            batch.Spr(Sprite.Carrot, fx + dir * len * 0.5f, head.Y + hr * 0.10f, len * 0.5f, len * 0.2f, dir * 0.10f, 1, 1, 1, 1, false, dir < 0);
 
             // Hat.
             var hat = (style >> 5) % 3 == 1 ? Sprite.TopHat : Sprite.Bucket;
-            batch.Spr(hat, head.X - dir * hr * 0.14f, head.Y - hr * 1.22f, hr * 0.95f, hr * 0.95f, -dir * 0.16f, 1, 1, 1, a);
+            batch.Spr(hat, head.X - dir * hr * 0.14f, head.Y - hr * 1.22f, hr * 0.95f, hr * 0.95f, -dir * 0.16f);
         }
 
         // ---- Test hooks ----

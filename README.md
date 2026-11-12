@@ -82,11 +82,6 @@ Snowdrift обновляется сам. Раз в день он узнаёт у
   - на новом треке остров «выдыхает» облачко снега, и снежинки ложатся на окна;
   - macOS: Spotify и «Музыка». Windows: любой плеер, который показывает себя в системных медиа-кнопках — Spotify, браузеры (YouTube, VK, Яндекс Музыка в браузере), Apple Music, «Медиаплеер» и другие.
 - **Новогоднее 🎄**: салют по кнопке и сам собой в новогоднюю полночь; ёлка с игрушками, огоньками, звездой и подарками; гирлянда (горит, мерцает, бегущие огни); иней по углам; искрящийся снег.
-- **Плавные жесты как на Mac ✋** (Windows, сенсорная панель):
-  - свайп четырьмя (или тремя) пальцами вбок — соседний рабочий стол едет вслед за пальцами и мягко докатывается на пружинке; короткий быстрый взмах тоже переключает, а у крайнего стола экран тянется, как резинка, и возвращается;
-  - свайп вниз — все окна плавно уменьшаются и уходят в панель задач; свайп вверх — возвращаются на место (если окна и так открыты — открывается «Представление задач»);
-  - Snowdrift только показывает анимацию, а переключает сама Windows, поэтому всё работает как обычно: окна, панель задач, горячие клавиши;
-  - как включить: в меню Snowdrift откройте «Плавные жесты как на Mac ✋» → «Включить: отключить жесты Windows…». Чтобы один свайп не делал два дела сразу, в «Параметры → Bluetooth и устройства → Сенсорная панель → Жесты четырьмя пальцами → Прокрутка» нужно выбрать «Ничего». Snowdrift сам откроет это место, и жесты заработают сразу.
 - **Оттепель**: сугробы и снеговики понемногу тают.
 - **Глубина**: дальние снежинки идут «за» окнами, ближние — перед ними.
 - **Счётчики**: сколько дней до Нового года и сколько снежинок уже улеглось.
@@ -114,7 +109,6 @@ Snowdrift обновляется сам. Раз в день он узнаёт у
 - Snowdrift читает только **границы** окон (положение и размер), а не их названия и содержимое. Никаких разрешений на запись экрана или «Универсальный доступ».
 - **Windows**: в интернет Snowdrift выходит только для того, чтобы раз в день спросить у GitHub, нет ли новой версии (выключается в меню «Обновления»). Обложки трека отдаёт сам плеер через системные медиа-кнопки.
 - **macOS**: в интернет Snowdrift выходит только за обложкой трека Spotify (меню → «Снежный остров» → «Обложки Spotify») и раз в день на GitHub за проверкой обновлений (меню → «Обновления»). И то и другое можно выключить. Для кнопок плеера macOS один раз спросит разрешение на управление Spotify или «Музыкой».
-- **Жесты (Windows)**: Snowdrift видит только положение пальцев на сенсорной панели, пока вы ей пользуетесь, и ничего не сохраняет. Окна во время анимации рисует сама Windows (так же, как превью в Alt+Tab), и Snowdrift их не получает.
 - Настройки хранятся только на вашем компьютере: macOS — `UserDefaults`, Windows — `%APPDATA%\Snowdrift\settings.json`.
 - Все картинки (снежинки, снеговик, ёлка, иконка) рисуются кодом — в приложении нет чужих ресурсов.
 
@@ -157,7 +151,6 @@ dotnet publish windows/Snowdrift.Windows.csproj -c Release -r win-x64 --self-con
 | `Overlay.swift` | `Overlay.cs` (DirectComposition) | Прозрачное окно поверх экрана, пропускающее клики |
 | `Music.swift`, `Island.swift` (SwiftUI) | `Music.cs`, `Island.cs` (WPF) | Снежный остров с музыкой |
 | `AppDelegate.swift` | `App.cs` | Меню, настройки, горячие клавиши, автозапуск |
-| — | `Touchpad.cs`, `Gestures.cs`, `Motion.cs` | Жесты: пальцы через Raw Input, пружина и резинка, рабочие столы, превью окон через DWM |
 
 ## Лицензия
 
@@ -165,4 +158,4 @@ MIT — см. [LICENSE](LICENSE).
 
 ---
 
-**English:** Snowdrift puts snow on your macOS or Windows desktop: it piles up on windows, the Dock/taskbar and the bottom of the screen, rides along when you move windows, and flies off when you yank them. Roll snowballs into snowmen, launch fireworks, enjoy a tree, garland and frost, and control music from a snowy Dynamic-Island-style widget. On Windows laptops, Mac-smooth touchpad gestures slide virtual desktops with your fingers on a soft spring and tuck windows into the taskbar. Free, open source (MIT), no accounts or analytics. Downloads are on the [Releases](https://github.com/Ayanokoji771/snowdrift/releases) page.
+**English:** Snowdrift puts snow on your macOS or Windows desktop: it piles up on windows, the Dock/taskbar and the bottom of the screen, rides along when you move windows, and flies off when you yank them. Roll snowballs into snowmen, launch fireworks, enjoy a tree, garland and frost, and control music from a snowy Dynamic-Island-style widget. Free, open source (MIT), no accounts or analytics. Downloads are on the [Releases](https://github.com/Ayanokoji771/snowdrift/releases) page.

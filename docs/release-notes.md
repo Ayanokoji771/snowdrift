@@ -1,9 +1,7 @@
-## Snowdrift 1.1.2
+## Snowdrift 1.1.3
 
-### Обновляется сам ⬆
-- Новые версии ставятся сами: Snowdrift скачивает их, сверяет контрольную сумму SHA-256 и перезапускается, когда вы три минуты не трогаете компьютер. Настройки сохраняются. Выключить можно в меню «Обновления» → «Обновлять автоматически».
-- Кнопка **«⬆ Обновить Snowdrift»** всегда стоит первой в меню. Один клик — и Snowdrift проверит GitHub, обновится и перезапустится.
-- Windows-версия стала меньше на 6 МБ.
+- **Плавные жесты для Windows убраны.** Snowdrift снова только про снег. Если вы выключали жесты Windows для сенсорной панели ради Snowdrift, после обновления он один раз напомнит об этом и по клику откроет настройки, чтобы включить их обратно: «Параметры → Bluetooth и устройства → Сенсорная панель → Жесты тремя / четырьмя пальцами».
+- Обновления остаются: Snowdrift обновляется сам, а кнопка **«⬆ Обновить Snowdrift»** стоит первой в меню.
 
 ### Установка и обновление одной командой
 **Windows** (PowerShell, `Win+X` → «Терминал»):
@@ -14,11 +12,6 @@ irm https://raw.githubusercontent.com/Ayanokoji771/snowdrift/main/install.ps1 | 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Ayanokoji771/snowdrift/main/install.sh | bash
 ```
-Одна команда и ставит, и обновляет: на месте, с сохранением настроек и без прав администратора. На Windows видно, сколько скачано и что происходит. Версия для Windows весит около 67 МБ, потому что внутри всё нужное для работы. Если у вас 1.0.0–1.1.1, выполните команду один раз, дальше Snowdrift будет обновляться сам.
-
-### Плавные жесты как на Mac ✋ (Windows, сенсорная панель)
-- Свайп четырьмя или тремя пальцами вбок — рабочий стол едет вслед за пальцами и мягко докатывается на пружинке. Свайп вниз — окна уходят в панель задач, свайп вверх — возвращаются.
-- Как включить: меню → «Плавные жесты как на Mac ✋» → «Включить: отключить жесты Windows…».
 
 ### Файлы
 | Система | Файл |
@@ -31,4 +24,4 @@ curl -fsSL https://raw.githubusercontent.com/Ayanokoji771/snowdrift/main/install
 
 ---
 
-**English:** Snowdrift now updates itself (downloads, verifies SHA-256, restarts while you're away; can be switched off), with an always-visible "⬆ Update Snowdrift" button at the top of the menu. One-command install/update shows its progress; the Windows download is 6 MB smaller.
+**English:** the Windows touchpad gestures are removed (a one-time note helps switch Windows' own swipes back on); automatic updates and the "⬆ Update Snowdrift" button stay.

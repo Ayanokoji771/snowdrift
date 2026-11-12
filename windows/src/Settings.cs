@@ -46,11 +46,9 @@ namespace Snowdrift
         public double PauseUntil { get; set; } = 0;
         public long TotalFlakes { get; set; } = 0;
         public bool WelcomeShown { get; set; } = false;
-        /// <summary>Mac-style touchpad gestures: desktops follow the fingers, windows tuck into the taskbar.</summary>
-        public bool Gestures { get; set; } = true;
-        /// <summary>3 or 4 fingers.</summary>
-        public int GestureFingers { get; set; } = 4;
+        /// <summary>1.1.0–1.1.2 suggested turning Windows' own touchpad swipes off for their gestures (since removed).</summary>
         public bool GesturesTipShown { get; set; } = false;
+        public bool GesturesRemovedNoticeShown { get; set; } = false;
         /// <summary>Install new versions on their own (restarting while the computer is idle).</summary>
         public bool AutoUpdate { get; set; } = true;
         /// <summary>Ask GitHub once a day whether a new version is out.</summary>
@@ -93,7 +91,6 @@ namespace Snowdrift
             D.FullScreenMode = Math.Clamp(D.FullScreenMode, 0, 2);
             D.FlakeSize = Math.Clamp(D.FlakeSize, 0, 2);
             D.SnowWhere = Math.Clamp(D.SnowWhere, 0, 1);
-            D.GestureFingers = Math.Clamp(D.GestureFingers, 3, 4);
             D.HiddenApps ??= new Dictionary<string, string>();
             D.ShownApps ??= new Dictionary<string, string>();
         }
