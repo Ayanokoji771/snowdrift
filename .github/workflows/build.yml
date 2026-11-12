@@ -94,6 +94,25 @@ jobs:
           Get-Content update.txt.error.txt -ErrorAction SilentlyContinue
           if ($p.ExitCode -ne 0) { Write-Error "updater test failed ($($p.ExitCode))"; exit 1 }
 
+      - name: One-command install, as people run it
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        shell: powershell
+        continue-on-error: true
+        run: |
+          $cmd = "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/install.ps1"
+          irm $cmd | iex
+          Start-Sleep -Seconds 4
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\Snowdrift\Snowdrift.exe'
+          $first = Get-Process Snowdrift -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe }
+          "installed: $((Get-Item $exe).VersionInfo.ProductVersion), running: $([bool]$first)"
+          # Again, now as an update over the running copy.
+          irm $cmd | iex
+          Start-Sleep -Seconds 4
+          $second = Get-Process Snowdrift -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe }
+          "after update: running $([bool]$second), restarted $($first -and $second -and $first.Id -ne $second.Id), Start menu: $(Test-Path (Join-Path ([Environment]::GetFolderPath('Programs')) 'Snowdrift.lnk'))"
+          Get-Process Snowdrift -ErrorAction SilentlyContinue | Stop-Process -Force
+          if (-not ($first -and $second -and $first.Id -ne $second.Id)) { Write-Error "install/update did not work"; exit 1 }
+
       - name: Package
         shell: pwsh
         run: |

@@ -35,7 +35,7 @@ final class Updater {
 
     private let session: URLSession = {
         let c = URLSessionConfiguration.ephemeral
-        c.httpAdditionalHeaders = ["User-Agent": "Snowdrift-Updater", "Accept": "application/vnd.github+json"]
+        c.httpAdditionalHeaders = ["User-Agent": "Snowdrift-Updater"]
         c.timeoutIntervalForRequest = 60
         return URLSession(configuration: c)
     }()
@@ -64,21 +64,26 @@ final class Updater {
         }
     }
 
+    /// Follows the release page's redirect rather than asking the GitHub API: the API allows only 60 requests
+    /// an hour per address, and many people share one (offices, mobile networks).
     private static func fetch(_ session: URLSession) async -> Release? {
-        guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else { return nil }
+        guard let latest = URL(string: "https://github.com/\(repo)/releases/latest") else { return nil }
         do {
-            let (data, response) = try await session.data(from: url)
-            guard (response as? HTTPURLResponse)?.statusCode == 200,
-                  let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let tag = json["tag_name"] as? String else { return nil }
-            var zip: URL?, sums: URL?
-            for asset in json["assets"] as? [[String: Any]] ?? [] {
-                guard let name = asset["name"] as? String, let link = asset["browser_download_url"] as? String,
-                      let u = URL(string: link) else { continue }
-                if name == assetName { zip = u } else if name == "SHA256SUMS.txt" { sums = u }
-            }
+            var page = URLRequest(url: latest)
+            page.httpMethod = "HEAD"
+            let (_, response) = try await session.data(for: page)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200, let final = http.url,
+                  let range = final.path.range(of: "/releases/tag/") else { return nil }
+            let tag = final.path[range.upperBound...].trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard !tag.isEmpty, let files = URL(string: "https://github.com/\(repo)/releases/download/\(tag)/") else { return nil }
+            // Releases without checksums (1.0.0) can't be installed automatically.
+            var sums = URLRequest(url: files.appendingPathComponent("SHA256SUMS.txt"))
+            sums.httpMethod = "HEAD"
+            let (_, sumsResponse) = try await session.data(for: sums)
+            let hasSums = (sumsResponse as? HTTPURLResponse)?.statusCode == 200
             let version = tag.hasPrefix("v") || tag.hasPrefix("V") ? String(tag.dropFirst()) : tag
-            return Release(version: version, zip: zip, sums: sums, page: (json["html_url"] as? String).flatMap { URL(string: $0) })
+            return Release(version: version, zip: files.appendingPathComponent(assetName),
+                           sums: hasSums ? files.appendingPathComponent("SHA256SUMS.txt") : nil, page: final)
         } catch {
             NSLog("Snowdrift update check failed: \(error.localizedDescription)")
             return nil

@@ -7,7 +7,6 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace Snowdrift
@@ -47,31 +46,32 @@ namespace Snowdrift
         {
             var c = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
             c.DefaultRequestHeaders.UserAgent.ParseAdd("Snowdrift-Updater");
-            c.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
             return c;
         }
 
-        /// <summary>Asks GitHub for the latest release. True when it was read (newer or not).</summary>
+        /// <summary>Asks GitHub for the latest release. True when it was read (newer or not).
+        /// Uses the release page's redirect rather than the GitHub API: the API allows only 60 requests an hour
+        /// per address, and many people share one (offices, mobile networks).</summary>
         public async Task<bool> CheckAsync()
         {
             try
             {
-                string json = await Http.GetStringAsync($"https://api.github.com/repos/{Repo}/releases/latest").ConfigureAwait(false);
-                using var doc = JsonDocument.Parse(json);
-                var root = doc.RootElement;
-                string tag = root.GetProperty("tag_name").GetString() ?? "";
+                using var page = new HttpRequestMessage(HttpMethod.Head, $"https://github.com/{Repo}/releases/latest");
+                using var r = await Http.SendAsync(page).ConfigureAwait(false);
+                r.EnsureSuccessStatusCode();
+                string url = r.RequestMessage?.RequestUri?.ToString() ?? "";
+                const string marker = "/releases/tag/";
+                int i = url.IndexOf(marker, StringComparison.Ordinal);
+                if (i < 0) return false;
+                string tag = Uri.UnescapeDataString(url.Substring(i + marker.Length).Trim('/'));
                 if (!Version.TryParse(tag.TrimStart('v', 'V'), out var v)) return false;
-                string zip = null, sums = null;
-                foreach (var a in root.GetProperty("assets").EnumerateArray())
-                {
-                    string name = a.GetProperty("name").GetString();
-                    string url = a.GetProperty("browser_download_url").GetString();
-                    if (name == AssetName) zip = url;
-                    else if (name == "SHA256SUMS.txt") sums = url;
-                }
-                if (root.TryGetProperty("html_url", out var page) && page.GetString() is string p) PageUrl = p;
-                zipUrl = zip;
-                sumsUrl = sums;
+                string files = $"https://github.com/{Repo}/releases/download/{tag}/";
+                // Releases without checksums (1.0.0) can't be installed automatically.
+                using var sums = new HttpRequestMessage(HttpMethod.Head, files + "SHA256SUMS.txt");
+                using var sr = await Http.SendAsync(sums).ConfigureAwait(false);
+                sumsUrl = sr.IsSuccessStatusCode ? files + "SHA256SUMS.txt" : null;
+                zipUrl = files + AssetName;
+                PageUrl = url;
                 Latest = new Version(v.Major, v.Minor, Math.Max(0, v.Build));
                 return true;
             }
