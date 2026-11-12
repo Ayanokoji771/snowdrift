@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="1.0.0"
+VERSION="$(tr -d "[:space:]" < VERSION)"
 APP="build/Snowdrift.app"
 
 # Pick a macOS SDK this Swift compiler can use. Command Line Tools sometimes ship

@@ -15,6 +15,10 @@ if let i = args.firstIndex(of: "--island-preview"), i + 1 < args.count {
     let ok = MainActor.assumeIsolated { IslandPreview.run(path: args[i + 1]) }
     exit(ok ? 0 : 1)
 }
+if let i = args.firstIndex(of: "--update-test"), i + 1 < args.count {
+    _ = NSApplication.shared
+    exit(Updater.runTest(target: URL(fileURLWithPath: args[i + 1])) ? 0 : 1)
+}
 if args.contains("--selftest") {
     exit(SelfTest.run() ? 0 : 1)
 }

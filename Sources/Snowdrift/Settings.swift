@@ -33,6 +33,7 @@ final class Settings {
             "island": true,
             "islandArtwork": true,
             "islandPuff": true,
+            "checkUpdates": true,
         ])
         // Older builds had an on/off switch for full screen.
         if d.object(forKey: "fullScreenMode") == nil, d.object(forKey: "hideInFullScreen") != nil {
@@ -180,6 +181,23 @@ final class Settings {
     var welcomeShown: Bool {
         get { d.bool(forKey: "welcomeShown") }
         set { d.set(newValue, forKey: "welcomeShown") }
+    }
+
+    /// Ask GitHub once a day whether a new version is out.
+    var checkUpdates: Bool {
+        get { d.bool(forKey: "checkUpdates") }
+        set { set(newValue, "checkUpdates") }
+    }
+
+    var lastUpdateCheck: Double {
+        get { d.double(forKey: "lastUpdateCheck") }
+        set { d.set(newValue, forKey: "lastUpdateCheck") }
+    }
+
+    /// The newest version the person was already told about.
+    var notifiedVersion: String {
+        get { d.string(forKey: "notifiedVersion") ?? "" }
+        set { d.set(newValue, forKey: "notifiedVersion") }
     }
 }
 

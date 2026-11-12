@@ -8,6 +8,9 @@ namespace Snowdrift
 {
     internal static class Program
     {
+        /// <summary>This copy was just put in place by the updater.</summary>
+        public static bool JustUpdated;
+
         [STAThread]
         private static int Main(string[] args)
         {
@@ -22,6 +25,7 @@ namespace Snowdrift
                         case "--snapshot": return Snapshot.Run(args[1]) ? 0 : 1;
                         case "--island-preview": return IslandPreview.Run(args[1]) ? 0 : 1;
                         case "--gesture-demo": return GestureDemo.Run(args[1]) ? 0 : 1;
+                        case "--update-test": return Updater.RunTest(args[1]);
                     }
                 }
                 catch (Exception e)
@@ -31,8 +35,18 @@ namespace Snowdrift
                 }
             }
 
+            // After an update the new copy starts while the old one is still closing: wait for it.
+            JustUpdated = Array.IndexOf(args, "--updated") >= 0;
             using var mutex = new Mutex(true, @"Local\Snowdrift.SingleInstance", out bool first);
-            if (!first) return 0;
+            if (!first)
+            {
+                if (!JustUpdated) return 0;
+                try
+                {
+                    if (!mutex.WaitOne(TimeSpan.FromSeconds(20))) return 0;
+                }
+                catch (AbandonedMutexException) { }
+            }
 
             AppDomain.CurrentDomain.UnhandledException += (s, e) => Log.Write("Crash: " + e.ExceptionObject);
             WF.Application.EnableVisualStyles();

@@ -90,6 +90,95 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             settings.welcomeShown = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.showHelp() }
         }
+        if settings.checkUpdates && Date().timeIntervalSince1970 - settings.lastUpdateCheck > 6 * 3600 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 25) { [weak self] in self?.checkForUpdates(manual: false) }
+        }
+    }
+
+    // MARK: - Updates
+
+    private var checkingUpdates = false
+
+    /// Asks GitHub for a newer version. A manual check always answers; an automatic one only marks the
+    /// menu bar icon and adds "Update to …" at the top of the menu.
+    private func checkForUpdates(manual: Bool) {
+        guard !checkingUpdates else { return }
+        checkingUpdates = true
+        Updater.shared.check { [weak self] read in
+            guard let self else { return }
+            self.checkingUpdates = false
+            self.settings.lastUpdateCheck = Date().timeIntervalSince1970
+            self.updateIcon()
+            let u = Updater.shared
+            if u.available, let v = u.latest {
+                if manual || self.settings.notifiedVersion != v {
+                    self.settings.notifiedVersion = v
+                    if manual { self.offerUpdate() }
+                }
+            } else if manual {
+                let alert = NSAlert()
+                alert.messageText = read ? L("У вас последняя версия — \(Updater.current).", "You have the latest version — \(Updater.current).")
+                                         : L("Не получилось связаться с GitHub", "Couldn't reach GitHub")
+                if !read { alert.informativeText = L("Проверьте интернет и попробуйте позже.", "Check the internet connection and try again later.") }
+                NSApp.activate(ignoringOtherApps: true)
+                alert.runModal()
+            }
+        }
+    }
+
+    private func offerUpdate() {
+        let u = Updater.shared
+        guard let v = u.latest else { return }
+        let alert = NSAlert()
+        alert.messageText = L("Вышел Snowdrift \(v) ❄︎", "Snowdrift \(v) is out ❄︎")
+        alert.informativeText = L("У вас \(Updater.current). Snowdrift скачает новую версию с GitHub, проверит её и перезапустится. Настройки сохранятся.",
+                                  "You have \(Updater.current). Snowdrift downloads the new version from GitHub, checks it and restarts. Your settings are kept.")
+        alert.addButton(withTitle: L("Обновить", "Update"))
+        alert.addButton(withTitle: L("Позже", "Later"))
+        alert.addButton(withTitle: L("Что нового", "What's new"))
+        NSApp.activate(ignoringOtherApps: true)
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: updateNow()
+        case .alertThirdButtonReturn: NSWorkspace.shared.open(u.pageURL)
+        default: break
+        }
+    }
+
+    private func updateNow() {
+        let u = Updater.shared
+        guard !u.busy else { return }
+        statusItem.button?.toolTip = L("Snowdrift — обновляется…", "Snowdrift — updating…")
+        u.install { [weak self] error in
+            guard let error else {
+                Updater.relaunch()
+                return
+            }
+            self?.updateIcon()
+            let alert = NSAlert()
+            alert.messageText = L("Не получилось обновиться", "Couldn't update")
+            alert.informativeText = error
+            alert.addButton(withTitle: L("Открыть страницу загрузки", "Open the download page"))
+            alert.addButton(withTitle: L("Закрыть", "Close"))
+            NSApp.activate(ignoringOtherApps: true)
+            if alert.runModal() == .alertFirstButtonReturn { NSWorkspace.shared.open(u.pageURL) }
+        }
+    }
+
+    /// The snowflake in the menu bar gets a small arrow while a new version waits.
+    private func updateIcon() {
+        guard let button = statusItem?.button else { return }
+        let u = Updater.shared
+        if u.available, let v = u.latest {
+            statusItem.length = NSStatusItem.variableLength
+            button.title = "↑"
+            button.imagePosition = .imageLeading
+            button.toolTip = L("Snowdrift — есть версия \(v)", "Snowdrift — \(v) is available")
+        } else {
+            statusItem.length = NSStatusItem.squareLength
+            button.title = ""
+            button.imagePosition = .imageOnly
+            button.toolTip = "Snowdrift"
+        }
     }
 
     // MARK: - Overlays
@@ -265,6 +354,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func tick() {
+        if settings.checkUpdates && !checkingUpdates && Date().timeIntervalSince1970 - settings.lastUpdateCheck > 24 * 3600 {
+            checkForUpdates(manual: false)
+        }
         // Timed pause.
         let until = settings.pauseUntil
         if until > 0 && Date().timeIntervalSince1970 >= until {
@@ -312,6 +404,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let s = settings
 
         info(menu, "Snowdrift")
+        if Updater.shared.available, let v = Updater.shared.latest {
+            let up = MenuAction(L("⬆ Обновить до \(v)", "⬆ Update to \(v)")) { [weak self] in self?.updateNow() }
+            up.attributedTitle = NSAttributedString(string: up.title, attributes: [.font: NSFont.boldSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize)])
+            menu.addItem(up)
+        }
         info(menu, newYearCountdown())
         var landed = s.totalFlakes + pendingFlakes
         for o in overlays { landed += o.sim.peekLanded }
@@ -434,6 +531,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(MenuAction(L("Запускать при входе в систему", "Open at login"), checked: login) { [weak self] in
             self?.toggleLogin()
         })
+        let updatesItem = NSMenuItem(title: L("Обновления", "Updates"), action: nil, keyEquivalent: "")
+        let um = NSMenu()
+        info(um, L("У вас версия \(Updater.current)", "You have version \(Updater.current)"))
+        um.addItem(MenuAction(L("Проверить сейчас…", "Check now…")) { [weak self] in self?.checkForUpdates(manual: true) })
+        um.addItem(MenuAction(L("Проверять раз в день", "Check once a day"), checked: s.checkUpdates) { s.checkUpdates.toggle() })
+        um.addItem(MenuAction(L("Что нового — страница на GitHub", "What's new — the GitHub page")) {
+            NSWorkspace.shared.open(Updater.shared.pageURL)
+        })
+        updatesItem.submenu = um
+        menu.addItem(updatesItem)
         menu.addItem(MenuAction(L("О Snowdrift", "About Snowdrift")) { [weak self] in self?.showAbout() })
         menu.addItem(MenuAction(L("Выйти", "Quit"), key: "q") { NSApp.terminate(nil) })
     }
@@ -557,11 +664,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.informativeText = L("""
         Снег на рабочем столе Mac. Бесплатно и с открытым кодом (MIT).
 
-        Без аккаунтов, ключей, рекламы и аналитики. В интернет — только за обложками Spotify (можно выключить). Настройки хранятся только на этом Mac.
+        Без аккаунтов, ключей, рекламы и аналитики. В интернет — только за обложками Spotify и раз в день проверить обновления на GitHub (и то и другое можно выключить). Настройки хранятся только на этом Mac.
         """, """
         Snow on your Mac desktop. Free and open source (MIT).
 
-        No accounts, keys, ads or analytics. The only download is Spotify cover art (can be turned off). Settings stay on this Mac.
+        No accounts, keys, ads or analytics. Online only for Spotify cover art and a daily update check on GitHub (both can be turned off). Settings stay on this Mac.
         """)
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()

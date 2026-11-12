@@ -93,6 +93,19 @@ namespace Snowdrift
                       "Settings are behind the snowflake in the tray. Ctrl+Alt+S turns the snow on or off."), WF.ToolTipIcon.None);
             }
 
+            Updater.CleanUpOld();
+            if (Program.JustUpdated)
+            {
+                tray.ShowBalloonTip(6000, L($"Snowdrift обновлён до {Version} ✓", $"Snowdrift updated to {Version} ✓"),
+                    L("Всё готово, настройки на месте.", "All set, your settings are kept."), WF.ToolTipIcon.None);
+            }
+            else if (D.CheckUpdates && DateTimeOffset.UtcNow.ToUnixTimeSeconds() - D.LastUpdateCheck > 6 * 3600)
+            {
+                var first = new DispatcherTimer { Interval = TimeSpan.FromSeconds(25) };
+                first.Tick += (s, e) => { first.Stop(); CheckForUpdates(false); };
+                first.Start();
+            }
+
             // Once: tell people with a touchpad how to switch on the Mac-style gestures.
             var tip = new DispatcherTimer { Interval = TimeSpan.FromSeconds(12) };
             tip.Tick += (s, e) =>
@@ -344,9 +357,91 @@ namespace Snowdrift
             LiveDebug.Tick(now, overlays, fg, hiddenForFrontApp);
         }
 
-        /// <summary>Once a second: timed pause, snowflake counter, New Year fireworks.</summary>
+        // ---- Updates ----
+
+        private bool checkingUpdates;
+
+        /// <summary>Asks GitHub for a newer version; a manual check always answers, an automatic one only speaks up once per version.</summary>
+        private async void CheckForUpdates(bool manual)
+        {
+            if (checkingUpdates) return;
+            checkingUpdates = true;
+            var u = Updater.Shared;
+            bool read;
+            try { read = await u.CheckAsync(); }
+            finally { checkingUpdates = false; }
+            D.LastUpdateCheck = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            Settings.S.Save();
+            UpdateTrayIcon();
+            if (u.Available)
+            {
+                string v = u.Latest.ToString();
+                if (manual)
+                {
+                    OfferUpdate();
+                }
+                else if (D.NotifiedVersion != v)
+                {
+                    D.NotifiedVersion = v;
+                    Settings.S.Save();
+                    balloonClick = UpdateNow;
+                    tray.ShowBalloonTip(15000, L($"Вышел Snowdrift {v} ❄", $"Snowdrift {v} is out ❄"),
+                        L("Нажмите, чтобы обновиться — займёт несколько секунд, настройки сохранятся.",
+                          "Click to update — it takes a few seconds and keeps your settings."), WF.ToolTipIcon.None);
+                }
+            }
+            else if (manual)
+            {
+                WF.MessageBox.Show(read ? L($"У вас последняя версия — {Version}.", $"You have the latest version — {Version}.")
+                                        : L("Не получилось связаться с GitHub. Проверьте интернет и попробуйте позже.",
+                                            "Couldn't reach GitHub. Check the internet connection and try again later."),
+                                   "Snowdrift", WF.MessageBoxButtons.OK, WF.MessageBoxIcon.Information);
+            }
+        }
+
+        private void OfferUpdate()
+        {
+            var u = Updater.Shared;
+            var answer = WF.MessageBox.Show(
+                L($"Вышла новая версия Snowdrift — {u.Latest} (у вас {Version}).\n\nОбновить сейчас? Snowdrift скачает её с GitHub, проверит и перезапустится. Настройки сохранятся.",
+                  $"A new version of Snowdrift is out — {u.Latest} (you have {Version}).\n\nUpdate now? Snowdrift downloads it from GitHub, checks it and restarts. Your settings are kept."),
+                "Snowdrift", WF.MessageBoxButtons.YesNo, WF.MessageBoxIcon.Information);
+            if (answer == WF.DialogResult.Yes) UpdateNow();
+        }
+
+        private async void UpdateNow()
+        {
+            var u = Updater.Shared;
+            if (u.Busy) return;
+            tray.Text = L("Snowdrift — обновляется…", "Snowdrift — updating…");
+            tray.ShowBalloonTip(4000, L("Обновляю Snowdrift…", "Updating Snowdrift…"),
+                L("Скачиваю новую версию с GitHub.", "Downloading the new version from GitHub."), WF.ToolTipIcon.None);
+            string error = await u.InstallAsync();
+            if (error == null)
+            {
+                try
+                {
+                    Updater.Relaunch();
+                    Quit();
+                    return;
+                }
+                catch (Exception e)
+                {
+                    error = e.Message;
+                }
+            }
+            UpdateTrayIcon();
+            var answer = WF.MessageBox.Show(error + L("\n\nОткрыть страницу загрузки?", "\n\nOpen the download page?"),
+                                            "Snowdrift", WF.MessageBoxButtons.YesNo, WF.MessageBoxIcon.Warning);
+            if (answer == WF.DialogResult.Yes) Updater.OpenPage(u.PageUrl);
+        }
+
+        /// <summary>Once a second: timed pause, snowflake counter, New Year fireworks, the daily update check.</summary>
         private void Tick()
         {
+            if (D.CheckUpdates && !checkingUpdates && DateTimeOffset.UtcNow.ToUnixTimeSeconds() - D.LastUpdateCheck > 24 * 3600)
+                CheckForUpdates(false);
+
             double until = D.PauseUntil;
             if (until > 0 && DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= until) SetEnabled(true);
 
@@ -437,7 +532,8 @@ namespace Snowdrift
             if (tray == null) return;
             var icon = D.Enabled && !hiddenForFrontApp ? iconOn : iconOff;
             if (tray.Icon != icon) tray.Icon = icon;
-            tray.Text = D.Enabled ? "Snowdrift" : L("Snowdrift — пауза", "Snowdrift — paused");
+            tray.Text = Updater.Shared.Available ? L($"Snowdrift — есть версия {Updater.Shared.Latest}", $"Snowdrift — {Updater.Shared.Latest} is available")
+                      : D.Enabled ? "Snowdrift" : L("Snowdrift — пауза", "Snowdrift — paused");
         }
 
         private static WF.ToolStripMenuItem Item(string text, Action action, bool check = false, string shortcut = null, SD.Image image = null)
@@ -475,6 +571,12 @@ namespace Snowdrift
             var head = Info("Snowdrift");
             head.Font = new SD.Font(head.Font, SD.FontStyle.Bold);
             m.Add(head);
+            if (Updater.Shared.Available)
+            {
+                var up = Item(L($"⬆ Обновить до {Updater.Shared.Latest}", $"⬆ Update to {Updater.Shared.Latest}"), UpdateNow);
+                up.Font = new SD.Font(up.Font, SD.FontStyle.Bold);
+                m.Add(up);
+            }
             m.Add(Info(NewYearCountdown()));
             long landed = d.TotalFlakes + pendingFlakes;
             foreach (var o in overlays) landed += o.Sim.PeekLanded;
@@ -563,6 +665,12 @@ namespace Snowdrift
             m.Add(new WF.ToolStripSeparator());
 
             m.Add(Item(L("Запускать вместе с Windows", "Start with Windows"), () => SetAutoStart(!AutoStart), AutoStart));
+            var updates = new WF.ToolStripMenuItem(L("Обновления", "Updates"));
+            updates.DropDownItems.Add(Info(L($"У вас версия {Version}", $"You have version {Version}")));
+            updates.DropDownItems.Add(Item(L("Проверить сейчас…", "Check now…"), () => CheckForUpdates(true)));
+            updates.DropDownItems.Add(Item(L("Проверять раз в день", "Check once a day"), () => Change(x => x.CheckUpdates = !x.CheckUpdates), d.CheckUpdates));
+            updates.DropDownItems.Add(Item(L("Что нового — страница на GitHub", "What's new — the GitHub page"), () => Updater.OpenPage(Updater.Shared.PageUrl)));
+            m.Add(updates);
             m.Add(Item(L("О Snowdrift", "About Snowdrift"), ShowAbout));
             m.Add(Item(L("Выйти", "Quit"), Quit));
         }
@@ -743,7 +851,7 @@ Ctrl+Alt+F — салют
 
 Снежный остров 🎵: когда играет музыка (Spotify, браузер, любой плеер), вверху экрана появляется остров — наведите на него курсор.
 
-Над полноэкранными приложениями снег прячется сам. Клики проходят сквозь снег. Snowdrift не выходит в интернет и не видит содержимое окон — только их границы.",
+Над полноэкранными приложениями снег прячется сам. Клики проходят сквозь снег. Snowdrift не видит содержимое окон — только их границы, а в интернет выходит только чтобы раз в день узнать на GitHub, нет ли новой версии (это можно выключить в меню «Обновления»).",
 @"Snow settles on windows, the taskbar and the bottom of the screen. Move a window and its drift rides along; yank it and the snow flies off.
 
 Mitten: sweep the cursor through a drift and the snow scatters.
@@ -759,15 +867,15 @@ Ctrl+Alt+F — fireworks
 
 Snow island 🎵: while music plays (Spotify, a browser, any player) an island appears at the top of the screen — hover over it.
 
-Snow hides over full-screen apps on its own. Clicks go through the snow. Snowdrift never goes online and never sees what is inside your windows, only where they are.");
+Snow hides over full-screen apps on its own. Clicks go through the snow. Snowdrift never sees what is inside your windows, only where they are, and goes online only to ask GitHub once a day whether there is a new version (switch it off under Updates).");
             WF.MessageBox.Show(text, L("Пусть идёт снег ❄", "Let it snow ❄"), WF.MessageBoxButtons.OK, WF.MessageBoxIcon.Information);
         }
 
         private static void ShowAbout()
         {
             WF.MessageBox.Show(L(
-                $"Snowdrift {Version}\n\nСнег на рабочем столе Windows. Бесплатно и с открытым кодом (MIT).\n\nБез интернета, аккаунтов, ключей, рекламы и аналитики. Настройки хранятся только на этом компьютере:\n{Settings.Folder}",
-                $"Snowdrift {Version}\n\nSnow on your Windows desktop. Free and open source (MIT).\n\nNo internet, accounts, keys, ads or analytics. Settings stay on this PC:\n{Settings.Folder}"),
+                $"Snowdrift {Version}\n\nСнег на рабочем столе Windows. Бесплатно и с открытым кодом (MIT).\n\nБез аккаунтов, ключей, рекламы и аналитики. В интернет — только проверка обновлений на GitHub (можно выключить). Настройки хранятся только на этом компьютере:\n{Settings.Folder}",
+                $"Snowdrift {Version}\n\nSnow on your Windows desktop. Free and open source (MIT).\n\nNo accounts, keys, ads or analytics. Online only to check GitHub for updates (can be switched off). Settings stay on this PC:\n{Settings.Folder}"),
                 "Snowdrift", WF.MessageBoxButtons.OK, WF.MessageBoxIcon.Information);
         }
 

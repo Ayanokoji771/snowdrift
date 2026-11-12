@@ -13,6 +13,7 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -73,11 +74,25 @@ jobs:
         shell: pwsh
         continue-on-error: true
         run: |
-          $p = Start-Process -FilePath out/x64/Snowdrift.exe -ArgumentList '--gesture-demo',"$pwd\gestures" -Wait -PassThru
+          # Not -Wait: that would also wait for the windows the demo opens.
+          $p = Start-Process -FilePath out/x64/Snowdrift.exe -ArgumentList '--gesture-demo',"$pwd\gestures" -PassThru
+          if (-not $p.WaitForExit(240000)) { Stop-Process -Id $p.Id -Force; Write-Error "gesture demo timed out" }
           Get-Content gestures\gestures.txt -ErrorAction SilentlyContinue
           Get-Content gestures.error.txt -ErrorAction SilentlyContinue
           Get-Content "$env:APPDATA\Snowdrift\snowdrift.log" -Tail 20 -ErrorAction SilentlyContinue
           if ($p.ExitCode -ne 0) { Write-Error "gesture demo failed ($($p.ExitCode))"; exit 1 }
+
+      - name: Updater on a copy
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          New-Item -ItemType Directory -Force updtest | Out-Null
+          Copy-Item out/x64/Snowdrift.exe updtest/Snowdrift.exe
+          $p = Start-Process -FilePath updtest/Snowdrift.exe -ArgumentList '--update-test',"$pwd\update.txt" -PassThru
+          if (-not $p.WaitForExit(300000)) { Stop-Process -Id $p.Id -Force; Write-Error "updater test timed out" }
+          Get-Content update.txt -ErrorAction SilentlyContinue
+          Get-Content update.txt.error.txt -ErrorAction SilentlyContinue
+          if ($p.ExitCode -ne 0) { Write-Error "updater test failed ($($p.ExitCode))"; exit 1 }
 
       - name: Package
         shell: pwsh
@@ -101,10 +116,12 @@ jobs:
             island.png
             live/
             gestures/
+            update.txt
             *.error.txt
 
   macos:
     runs-on: macos-15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -127,13 +144,26 @@ jobs:
     needs: [windows, macos]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches VERSION
+        run: |
+          v="$(tr -d '[:space:]' < VERSION)"
+          if [ "v$v" != "${GITHUB_REF_NAME}" ]; then echo "VERSION is $v but the tag is ${GITHUB_REF_NAME}"; exit 1; fi
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
 
+      - name: Checksums
+        run: |
+          mkdir upload
+          cp dist/windows/*.zip dist/macos/*.zip upload/
+          cd upload
+          sha256sum *.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
       - uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/windows/*.zip
-            dist/macos/*.zip
-          generate_release_notes: true
+          files: upload/*
+          body_path: docs/release-notes.md

@@ -51,6 +51,12 @@ namespace Snowdrift
         /// <summary>3 or 4 fingers.</summary>
         public int GestureFingers { get; set; } = 4;
         public bool GesturesTipShown { get; set; } = false;
+        /// <summary>Ask GitHub once a day whether a new version is out.</summary>
+        public bool CheckUpdates { get; set; } = true;
+        /// <summary>Unix seconds of the last update check.</summary>
+        public double LastUpdateCheck { get; set; } = 0;
+        /// <summary>The newest version the person was already told about.</summary>
+        public string NotifiedVersion { get; set; } = "";
     }
 
     /// <summary>Settings live in %APPDATA%\Snowdrift\settings.json and never leave this PC.</summary>
