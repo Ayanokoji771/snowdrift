@@ -249,14 +249,14 @@ namespace Snowdrift
                 {
                     var r = windows[i].Rect;
                     var rect = new RectangleF(r.X0, r.Y0, r.X1 - r.X0, r.Y1 - r.Y0);
-                    using var path = Png.Rounded(rect, 8);
+                    using var shape = Png.Rounded(rect, 8);
                     using (var shadow = new SolidBrush(Color.FromArgb(70, 0, 0, 0)))
                     {
                         g.TranslateTransform(0, 8);
-                        g.FillPath(shadow, path);
+                        g.FillPath(shadow, shape);
                         g.TranslateTransform(0, -8);
                     }
-                    using (var fill = new SolidBrush(Color.FromArgb(243, 243, 243))) g.FillPath(fill, path);
+                    using (var fill = new SolidBrush(Color.FromArgb(243, 243, 243))) g.FillPath(fill, shape);
                     using (var title = new SolidBrush(Color.FromArgb(225, 225, 228)))
                         g.FillRectangle(title, rect.X, rect.Y, rect.Width, 32);
                     using var glyph = new SolidBrush(Color.FromArgb(60, 60, 60));

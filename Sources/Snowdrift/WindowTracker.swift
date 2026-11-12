@@ -172,10 +172,12 @@ final class WindowTracker {
                 let dd = UserDefaults(suiteName: "com.apple.dock")
                 let tile = CGFloat(dd?.double(forKey: "tilesize") ?? 48)
                 let showRecents = (dd?.object(forKey: "show-recents") as? Bool) ?? true
-                let count = (dd?.array(forKey: "persistent-apps")?.count ?? 8)
-                    + (dd?.array(forKey: "persistent-others")?.count ?? 1)
-                    + (showRecents ? (dd?.array(forKey: "recent-apps")?.count ?? 0) : 0) + 2
-                let width = min(f.width - 40, (CGFloat(count) * tile * 1.105 + 26) * 0.92)
+                let apps: Int = dd?.array(forKey: "persistent-apps")?.count ?? 8
+                let others: Int = dd?.array(forKey: "persistent-others")?.count ?? 1
+                let recents: Int = showRecents ? (dd?.array(forKey: "recent-apps")?.count ?? 0) : 0
+                let count: Int = apps + others + recents + 2
+                let natural: CGFloat = CGFloat(count) * tile * 1.105 + 26
+                let width: CGFloat = min(f.width - 40, natural * 0.92)
                 return CGRect(x: screenRect.midX - width / 2, y: screenRect.maxY - bottom, width: width, height: bottom)
             }
         }
