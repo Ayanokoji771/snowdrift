@@ -34,6 +34,7 @@ final class Settings {
             "islandArtwork": true,
             "islandPuff": true,
             "checkUpdates": true,
+            "autoUpdate": true,
         ])
         // Older builds had an on/off switch for full screen.
         if d.object(forKey: "fullScreenMode") == nil, d.object(forKey: "hideInFullScreen") != nil {
@@ -187,6 +188,12 @@ final class Settings {
     var checkUpdates: Bool {
         get { d.bool(forKey: "checkUpdates") }
         set { set(newValue, "checkUpdates") }
+    }
+
+    /// Install new versions on their own (restarting while the Mac is idle).
+    var autoUpdate: Bool {
+        get { d.bool(forKey: "autoUpdate") }
+        set { set(newValue, "autoUpdate") }
     }
 
     var lastUpdateCheck: Double {

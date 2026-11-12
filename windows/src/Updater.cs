@@ -86,7 +86,7 @@ namespace Snowdrift
         /// Returns null on success, or what went wrong, in words for the person.</summary>
         public async Task<string> InstallAsync(bool force = false)
         {
-            if (Busy) return null;
+            if (Busy) return Lang.L("Обновление уже идёт.", "An update is already running.");
             if (!force && !Available) return Lang.L("Новой версии нет.", "There is no newer version.");
             if (zipUrl == null || sumsUrl == null) return Lang.L("В выпуске на GitHub нет нужного файла.", "The GitHub release is missing a file.");
             string exe = Environment.ProcessPath;
@@ -169,6 +169,23 @@ namespace Snowdrift
                     try { File.Delete(old); } catch { await Task.Delay(1000); }
                 }
             });
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct LASTINPUTINFO
+        {
+            public uint cbSize;
+            public uint dwTime;
+        }
+
+        [DllImport("user32")] private static extern bool GetLastInputInfo(ref LASTINPUTINFO info);
+
+        /// <summary>Seconds since the last key press or mouse move.</summary>
+        public static double IdleSeconds()
+        {
+            var info = new LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf<LASTINPUTINFO>() };
+            if (!GetLastInputInfo(ref info)) return 0;
+            return unchecked((uint)Environment.TickCount - info.dwTime) / 1000.0;
         }
 
         public static void OpenPage(string url)

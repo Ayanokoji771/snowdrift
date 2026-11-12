@@ -1,4 +1,9 @@
-## Snowdrift 1.1.1
+## Snowdrift 1.1.2
+
+### Обновляется сам ⬆
+- Новые версии ставятся сами: Snowdrift скачивает их, сверяет контрольную сумму SHA-256 и перезапускается, когда вы три минуты не трогаете компьютер. Настройки сохраняются. Выключить можно в меню «Обновления» → «Обновлять автоматически».
+- Кнопка **«⬆ Обновить Snowdrift»** всегда стоит первой в меню. Один клик — и Snowdrift проверит GitHub, обновится и перезапустится.
+- Windows-версия стала меньше на 6 МБ.
 
 ### Установка и обновление одной командой
 **Windows** (PowerShell, `Win+X` → «Терминал»):
@@ -9,12 +14,7 @@ irm https://raw.githubusercontent.com/Ayanokoji771/snowdrift/main/install.ps1 | 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Ayanokoji771/snowdrift/main/install.sh | bash
 ```
-Одна и та же команда и ставит, и обновляет. Она скачивает этот выпуск, сверяет контрольную сумму SHA-256, кладёт программу на то же место и запускает её. Настройки сохраняются, права администратора не нужны. Если у вас 1.0.0, выполните команду один раз, и старая версия заменится.
-
-### Обновление в один клик
-- Snowdrift раз в день проверяет, нет ли новой версии. На Windows появится всплывающее сообщение, а на Mac — стрелочка ↑ у снежинки. В меню будет пункт «⬆ Обновить до …».
-- Один клик: Snowdrift скачает новую версию, сверит контрольную сумму, перезапустится и сохранит настройки.
-- Проверка стала надёжнее: теперь она идёт без GitHub API, у которого есть лимит запросов. Раньше она могла не работать там, где у многих людей один общий адрес в интернете (мобильный интернет, офис).
+Одна команда и ставит, и обновляет: на месте, с сохранением настроек и без прав администратора. На Windows видно, сколько скачано и что происходит. Версия для Windows весит около 67 МБ, потому что внутри всё нужное для работы. Если у вас 1.0.0–1.1.1, выполните команду один раз, дальше Snowdrift будет обновляться сам.
 
 ### Плавные жесты как на Mac ✋ (Windows, сенсорная панель)
 - Свайп четырьмя или тремя пальцами вбок — рабочий стол едет вслед за пальцами и мягко докатывается на пружинке. Свайп вниз — окна уходят в панель задач, свайп вверх — возвращаются.
@@ -31,4 +31,4 @@ curl -fsSL https://raw.githubusercontent.com/Ayanokoji771/snowdrift/main/install
 
 ---
 
-**English:** install or update with one command (`irm …/install.ps1 | iex` on Windows, `curl -fsSL …/install.sh | bash` on macOS); one-click in-app updates that no longer depend on the rate-limited GitHub API; Mac-smooth touchpad gestures on Windows.
+**English:** Snowdrift now updates itself (downloads, verifies SHA-256, restarts while you're away; can be switched off), with an always-visible "⬆ Update Snowdrift" button at the top of the menu. One-command install/update shows its progress; the Windows download is 6 MB smaller.

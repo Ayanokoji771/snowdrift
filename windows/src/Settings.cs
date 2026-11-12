@@ -51,6 +51,8 @@ namespace Snowdrift
         /// <summary>3 or 4 fingers.</summary>
         public int GestureFingers { get; set; } = 4;
         public bool GesturesTipShown { get; set; } = false;
+        /// <summary>Install new versions on their own (restarting while the computer is idle).</summary>
+        public bool AutoUpdate { get; set; } = true;
         /// <summary>Ask GitHub once a day whether a new version is out.</summary>
         public bool CheckUpdates { get; set; } = true;
         /// <summary>Unix seconds of the last update check.</summary>

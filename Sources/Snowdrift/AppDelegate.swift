@@ -98,11 +98,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Updates
 
     private var checkingUpdates = false
+    /// A new version already sits in place of this app; it starts with the next restart.
+    private var readyVersion: String?
 
-    /// Asks GitHub for a newer version. A manual check always answers; an automatic one only marks the
-    /// menu bar icon and adds "Update to …" at the top of the menu.
+    /// Asks GitHub for a newer version. The menu button (manual) goes straight on to update; the daily
+    /// check installs it quietly when automatic updates are on, or marks the menu bar icon otherwise.
     private func checkForUpdates(manual: Bool) {
-        guard !checkingUpdates else { return }
+        if manual, readyVersion != nil { restartToUpdate(); return }
+        guard !checkingUpdates, !Updater.shared.busy else { return }
         checkingUpdates = true
         Updater.shared.check { [weak self] read in
             guard let self else { return }
@@ -110,42 +113,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.settings.lastUpdateCheck = Date().timeIntervalSince1970
             self.updateIcon()
             let u = Updater.shared
+            if let ready = self.readyVersion, let v = u.latest, !Updater.isNewer(v, than: ready) { return }
             if u.available, let v = u.latest {
-                if manual || self.settings.notifiedVersion != v {
+                if manual {
+                    self.updateNow()
+                } else if self.settings.autoUpdate {
+                    self.installQuietly()
+                } else {
                     self.settings.notifiedVersion = v
-                    if manual { self.offerUpdate() }
                 }
             } else if manual {
                 let alert = NSAlert()
-                alert.messageText = read ? L("У вас последняя версия — \(Updater.current).", "You have the latest version — \(Updater.current).")
+                alert.messageText = read ? L("У вас последняя версия — \(Updater.current) ✓", "You have the latest version — \(Updater.current) ✓")
                                          : L("Не получилось связаться с GitHub", "Couldn't reach GitHub")
-                if !read { alert.informativeText = L("Проверьте интернет и попробуйте позже.", "Check the internet connection and try again later.") }
+                if !read { alert.informativeText = L("Проверьте интернет и попробуйте ещё раз.", "Check the internet connection and try again.") }
                 NSApp.activate(ignoringOtherApps: true)
                 alert.runModal()
             }
         }
     }
 
-    private func offerUpdate() {
-        let u = Updater.shared
-        guard let v = u.latest else { return }
-        let alert = NSAlert()
-        alert.messageText = L("Вышел Snowdrift \(v) ❄︎", "Snowdrift \(v) is out ❄︎")
-        alert.informativeText = L("У вас \(Updater.current). Snowdrift скачает новую версию с GitHub, проверит её и перезапустится. Настройки сохранятся.",
-                                  "You have \(Updater.current). Snowdrift downloads the new version from GitHub, checks it and restarts. Your settings are kept.")
-        alert.addButton(withTitle: L("Обновить", "Update"))
-        alert.addButton(withTitle: L("Позже", "Later"))
-        alert.addButton(withTitle: L("Что нового", "What's new"))
-        NSApp.activate(ignoringOtherApps: true)
-        switch alert.runModal() {
-        case .alertFirstButtonReturn: updateNow()
-        case .alertThirdButtonReturn: NSWorkspace.shared.open(u.pageURL)
-        default: break
+    /// Automatic update: download and put the new version in place now, restart once nobody is using the Mac.
+    private func installQuietly() {
+        Updater.shared.install { [weak self] error in
+            guard let self else { return }
+            if let error {
+                NSLog("Snowdrift automatic update failed: \(error)")
+                self.updateIcon()
+                return
+            }
+            self.readyVersion = Updater.shared.latest
+            self.updateIcon()
         }
     }
 
+    /// The menu button: update right now and restart.
     private func updateNow() {
         let u = Updater.shared
+        if readyVersion != nil { restartToUpdate(); return }
         guard !u.busy else { return }
         statusItem.button?.toolTip = L("Snowdrift — обновляется…", "Snowdrift — updating…")
         u.install { [weak self] error in
@@ -164,11 +169,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    private func restartToUpdate() {
+        Updater.relaunch()
+    }
+
+    /// Seconds since the last key press, click or mouse move.
+    private var idleSeconds: Double {
+        guard let any = CGEventType(rawValue: ~0) else { return 0 }
+        return CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: any)
+    }
+
+    /// The always-visible first item of the menu.
+    private func updateButton() -> NSMenuItem {
+        let u = Updater.shared
+        func bold(_ item: NSMenuItem) -> NSMenuItem {
+            item.attributedTitle = NSAttributedString(string: item.title,
+                                                      attributes: [.font: NSFont.boldSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize)])
+            return item
+        }
+        func disabled(_ title: String) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            return item
+        }
+        if let v = readyVersion {
+            return bold(MenuAction(L("⬆ Перезапустить в версию \(v)", "⬆ Restart into version \(v)")) { [weak self] in self?.restartToUpdate() })
+        }
+        if u.busy { return disabled(L("⬆ Обновляю…", "⬆ Updating…")) }
+        if checkingUpdates { return disabled(L("⬆ Проверяю обновления…", "⬆ Checking for updates…")) }
+        if u.available, let v = u.latest {
+            return bold(MenuAction(L("⬆ Обновить до \(v)", "⬆ Update to \(v)")) { [weak self] in self?.updateNow() })
+        }
+        return MenuAction(L("⬆ Обновить Snowdrift", "⬆ Update Snowdrift")) { [weak self] in self?.checkForUpdates(manual: true) }
+    }
+
     /// The snowflake in the menu bar gets a small arrow while a new version waits.
     private func updateIcon() {
         guard let button = statusItem?.button else { return }
         let u = Updater.shared
-        if u.available, let v = u.latest {
+        if u.available, readyVersion == nil, let v = u.latest {
             statusItem.length = NSStatusItem.variableLength
             button.title = "↑"
             button.imagePosition = .imageLeading
@@ -357,6 +396,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if settings.checkUpdates && !checkingUpdates && Date().timeIntervalSince1970 - settings.lastUpdateCheck > 24 * 3600 {
             checkForUpdates(manual: false)
         }
+        // A downloaded update starts once nobody has touched the Mac for three minutes.
+        if readyVersion != nil && idleSeconds > 180 {
+            restartToUpdate()
+            return
+        }
         // Timed pause.
         let until = settings.pauseUntil
         if until > 0 && Date().timeIntervalSince1970 >= until {
@@ -404,11 +448,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let s = settings
 
         info(menu, "Snowdrift")
-        if Updater.shared.available, let v = Updater.shared.latest {
-            let up = MenuAction(L("⬆ Обновить до \(v)", "⬆ Update to \(v)")) { [weak self] in self?.updateNow() }
-            up.attributedTitle = NSAttributedString(string: up.title, attributes: [.font: NSFont.boldSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize)])
-            menu.addItem(up)
-        }
+        menu.addItem(updateButton())
         info(menu, newYearCountdown())
         var landed = s.totalFlakes + pendingFlakes
         for o in overlays { landed += o.sim.peekLanded }
@@ -534,7 +574,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let updatesItem = NSMenuItem(title: L("Обновления", "Updates"), action: nil, keyEquivalent: "")
         let um = NSMenu()
         info(um, L("У вас версия \(Updater.current)", "You have version \(Updater.current)"))
-        um.addItem(MenuAction(L("Проверить сейчас…", "Check now…")) { [weak self] in self?.checkForUpdates(manual: true) })
+        um.addItem(MenuAction(L("Обновлять автоматически", "Update automatically"), checked: s.autoUpdate) { s.autoUpdate.toggle() })
+        info(um, L("   скачивает сам, перезапускается, пока вы не за Mac", "   downloads on its own, restarts while you're away"))
         um.addItem(MenuAction(L("Проверять раз в день", "Check once a day"), checked: s.checkUpdates) { s.checkUpdates.toggle() })
         um.addItem(MenuAction(L("Что нового — страница на GitHub", "What's new — the GitHub page")) {
             NSWorkspace.shared.open(Updater.shared.pageURL)

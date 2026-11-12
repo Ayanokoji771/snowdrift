@@ -360,75 +360,83 @@ namespace Snowdrift
         // ---- Updates ----
 
         private bool checkingUpdates;
+        /// <summary>A new version already sits in place of Snowdrift.exe; it starts with the next restart.</summary>
+        private Version readyVersion;
 
-        /// <summary>Asks GitHub for a newer version; a manual check always answers, an automatic one only speaks up once per version.</summary>
+        /// <summary>Asks GitHub for a newer version. The menu button (manual) goes straight on to update;
+        /// the daily check installs it quietly when automatic updates are on, or offers it once otherwise.</summary>
         private async void CheckForUpdates(bool manual)
         {
-            if (checkingUpdates) return;
-            checkingUpdates = true;
             var u = Updater.Shared;
+            if (checkingUpdates || u.Busy) return;
+            if (manual && readyVersion != null) { RestartToUpdate(); return; }
+            checkingUpdates = true;
             bool read;
             try { read = await u.CheckAsync(); }
             finally { checkingUpdates = false; }
             D.LastUpdateCheck = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             Settings.S.Save();
             UpdateTrayIcon();
+            if (readyVersion != null && u.Latest != null && u.Latest <= readyVersion) return;
             if (u.Available)
             {
-                string v = u.Latest.ToString();
-                if (manual)
-                {
-                    OfferUpdate();
-                }
-                else if (D.NotifiedVersion != v)
-                {
-                    D.NotifiedVersion = v;
-                    Settings.S.Save();
-                    balloonClick = UpdateNow;
-                    tray.ShowBalloonTip(15000, L($"Вышел Snowdrift {v} ❄", $"Snowdrift {v} is out ❄"),
-                        L("Нажмите, чтобы обновиться — займёт несколько секунд, настройки сохранятся.",
-                          "Click to update — it takes a few seconds and keeps your settings."), WF.ToolTipIcon.None);
-                }
+                if (manual) UpdateNow();
+                else if (D.AutoUpdate) InstallQuietly();
+                else Announce();
             }
             else if (manual)
             {
-                WF.MessageBox.Show(read ? L($"У вас последняя версия — {Version}.", $"You have the latest version — {Version}.")
-                                        : L("Не получилось связаться с GitHub. Проверьте интернет и попробуйте позже.",
-                                            "Couldn't reach GitHub. Check the internet connection and try again later."),
-                                   "Snowdrift", WF.MessageBoxButtons.OK, WF.MessageBoxIcon.Information);
+                tray.ShowBalloonTip(5000, "Snowdrift",
+                    read ? L($"У вас последняя версия — {Version} ✓", $"You have the latest version — {Version} ✓")
+                         : L("Не получилось связаться с GitHub. Проверьте интернет и попробуйте ещё раз.",
+                             "Couldn't reach GitHub. Check the internet connection and try again."), WF.ToolTipIcon.None);
             }
         }
 
-        private void OfferUpdate()
+        /// <summary>Once per version: a note that an update is waiting, with a click to install it.</summary>
+        private void Announce()
         {
-            var u = Updater.Shared;
-            var answer = WF.MessageBox.Show(
-                L($"Вышла новая версия Snowdrift — {u.Latest} (у вас {Version}).\n\nОбновить сейчас? Snowdrift скачает её с GitHub, проверит и перезапустится. Настройки сохранятся.",
-                  $"A new version of Snowdrift is out — {u.Latest} (you have {Version}).\n\nUpdate now? Snowdrift downloads it from GitHub, checks it and restarts. Your settings are kept."),
-                "Snowdrift", WF.MessageBoxButtons.YesNo, WF.MessageBoxIcon.Information);
-            if (answer == WF.DialogResult.Yes) UpdateNow();
+            string v = Updater.Shared.Latest.ToString();
+            if (D.NotifiedVersion == v) return;
+            D.NotifiedVersion = v;
+            Settings.S.Save();
+            balloonClick = UpdateNow;
+            tray.ShowBalloonTip(15000, L($"Вышел Snowdrift {v} ❄", $"Snowdrift {v} is out ❄"),
+                L("Нажмите, чтобы обновиться — займёт несколько секунд, настройки сохранятся.",
+                  "Click to update — it takes a few seconds and keeps your settings."), WF.ToolTipIcon.None);
         }
 
+        /// <summary>Automatic update: download and put the new version in place now, restart when nobody is using the computer.</summary>
+        private async void InstallQuietly()
+        {
+            var u = Updater.Shared;
+            string error = await u.InstallAsync();
+            if (error != null)
+            {
+                Log.Write("Automatic update failed: " + error);
+                Announce();
+                return;
+            }
+            readyVersion = u.Latest;
+            UpdateTrayIcon();
+            Log.Write($"Update {readyVersion} is in place; Snowdrift restarts into it once the computer is idle");
+        }
+
+        /// <summary>The menu button: update right now and restart.</summary>
         private async void UpdateNow()
         {
             var u = Updater.Shared;
             if (u.Busy) return;
+            if (readyVersion != null) { RestartToUpdate(); return; }
             tray.Text = L("Snowdrift — обновляется…", "Snowdrift — updating…");
             tray.ShowBalloonTip(4000, L("Обновляю Snowdrift…", "Updating Snowdrift…"),
-                L("Скачиваю новую версию с GitHub.", "Downloading the new version from GitHub."), WF.ToolTipIcon.None);
+                L("Скачиваю новую версию с GitHub, это займёт несколько секунд.", "Downloading the new version from GitHub, a few seconds."), WF.ToolTipIcon.None);
             string error = await u.InstallAsync();
             if (error == null)
             {
-                try
-                {
-                    Updater.Relaunch();
-                    Quit();
-                    return;
-                }
-                catch (Exception e)
-                {
-                    error = e.Message;
-                }
+                readyVersion = u.Latest;
+                RestartToUpdate();
+                return;
             }
             UpdateTrayIcon();
             var answer = WF.MessageBox.Show(error + L("\n\nОткрыть страницу загрузки?", "\n\nOpen the download page?"),
@@ -436,11 +444,51 @@ namespace Snowdrift
             if (answer == WF.DialogResult.Yes) Updater.OpenPage(u.PageUrl);
         }
 
+        private void RestartToUpdate()
+        {
+            try
+            {
+                Updater.Relaunch();
+                Quit();
+            }
+            catch (Exception e)
+            {
+                Log.Write("Restart after update failed: " + e.Message);
+            }
+        }
+
+        /// <summary>The always-visible first item of the menu.</summary>
+        private WF.ToolStripMenuItem UpdateButton()
+        {
+            var u = Updater.Shared;
+            WF.ToolStripMenuItem item;
+            if (readyVersion != null)
+                item = Item(L($"⬆ Перезапустить в версию {readyVersion}", $"⬆ Restart into version {readyVersion}"), RestartToUpdate);
+            else if (u.Busy)
+                return Info(L("⬆ Обновляю…", "⬆ Updating…"));
+            else if (checkingUpdates)
+                return Info(L("⬆ Проверяю обновления…", "⬆ Checking for updates…"));
+            else if (u.Available)
+                item = Item(L($"⬆ Обновить до {u.Latest}", $"⬆ Update to {u.Latest}"), UpdateNow);
+            else
+                return Item(L("⬆ Обновить Snowdrift", "⬆ Update Snowdrift"), () => CheckForUpdates(true));
+            item.Font = new SD.Font(item.Font, SD.FontStyle.Bold);
+            return item;
+        }
+
         /// <summary>Once a second: timed pause, snowflake counter, New Year fireworks, the daily update check.</summary>
         private void Tick()
         {
             if (D.CheckUpdates && !checkingUpdates && DateTimeOffset.UtcNow.ToUnixTimeSeconds() - D.LastUpdateCheck > 24 * 3600)
                 CheckForUpdates(false);
+            // A downloaded update starts once nobody has touched the computer for three minutes
+            // (and no full-screen app or game is running), so it never interrupts anything.
+            if (readyVersion != null && Updater.IdleSeconds() > 180 && !fg.SystemBusy && !(gestures?.Busy ?? false))
+            {
+                Log.Write($"Restarting into {readyVersion} while the computer is idle");
+                RestartToUpdate();
+                return;
+            }
 
             double until = D.PauseUntil;
             if (until > 0 && DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= until) SetEnabled(true);
@@ -532,7 +580,8 @@ namespace Snowdrift
             if (tray == null) return;
             var icon = D.Enabled && !hiddenForFrontApp ? iconOn : iconOff;
             if (tray.Icon != icon) tray.Icon = icon;
-            tray.Text = Updater.Shared.Available ? L($"Snowdrift — есть версия {Updater.Shared.Latest}", $"Snowdrift — {Updater.Shared.Latest} is available")
+            tray.Text = readyVersion != null ? L($"Snowdrift — версия {readyVersion} готова", $"Snowdrift — {readyVersion} is ready")
+                      : Updater.Shared.Available ? L($"Snowdrift — есть версия {Updater.Shared.Latest}", $"Snowdrift — {Updater.Shared.Latest} is available")
                       : D.Enabled ? "Snowdrift" : L("Snowdrift — пауза", "Snowdrift — paused");
         }
 
@@ -571,12 +620,7 @@ namespace Snowdrift
             var head = Info("Snowdrift");
             head.Font = new SD.Font(head.Font, SD.FontStyle.Bold);
             m.Add(head);
-            if (Updater.Shared.Available)
-            {
-                var up = Item(L($"⬆ Обновить до {Updater.Shared.Latest}", $"⬆ Update to {Updater.Shared.Latest}"), UpdateNow);
-                up.Font = new SD.Font(up.Font, SD.FontStyle.Bold);
-                m.Add(up);
-            }
+            m.Add(UpdateButton());
             m.Add(Info(NewYearCountdown()));
             long landed = d.TotalFlakes + pendingFlakes;
             foreach (var o in overlays) landed += o.Sim.PeekLanded;
@@ -667,7 +711,9 @@ namespace Snowdrift
             m.Add(Item(L("Запускать вместе с Windows", "Start with Windows"), () => SetAutoStart(!AutoStart), AutoStart));
             var updates = new WF.ToolStripMenuItem(L("Обновления", "Updates"));
             updates.DropDownItems.Add(Info(L($"У вас версия {Version}", $"You have version {Version}")));
-            updates.DropDownItems.Add(Item(L("Проверить сейчас…", "Check now…"), () => CheckForUpdates(true)));
+            updates.DropDownItems.Add(Item(L("Обновлять автоматически", "Update automatically"), () => Change(x => x.AutoUpdate = !x.AutoUpdate), d.AutoUpdate));
+            updates.DropDownItems.Add(Info(L("   скачивает сам, перезапускается, пока вы не за компьютером",
+                                             "   downloads on its own, restarts while you're away")));
             updates.DropDownItems.Add(Item(L("Проверять раз в день", "Check once a day"), () => Change(x => x.CheckUpdates = !x.CheckUpdates), d.CheckUpdates));
             updates.DropDownItems.Add(Item(L("Что нового — страница на GitHub", "What's new — the GitHub page"), () => Updater.OpenPage(Updater.Shared.PageUrl)));
             m.Add(updates);
