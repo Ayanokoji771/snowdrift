@@ -1,0 +1,128 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build (x64)
+        run: >
+          dotnet publish windows/Snowdrift.Windows.csproj -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
+          -o out/x64
+
+      - name: Build (ARM64)
+        run: >
+          dotnet publish windows/Snowdrift.Windows.csproj -c Release -r win-arm64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
+          -o out/arm64
+
+      - name: Self-test
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath out/x64/Snowdrift.exe -ArgumentList '--selftest','selftest.txt' -Wait -PassThru
+          Get-Content selftest.txt -ErrorAction SilentlyContinue
+          Get-Content selftest.txt.error.txt -ErrorAction SilentlyContinue
+          if ($p.ExitCode -ne 0) { Write-Error "self-test failed ($($p.ExitCode))"; exit 1 }
+
+      - name: Pictures
+        shell: pwsh
+        run: |
+          Start-Process -FilePath out/x64/Snowdrift.exe -ArgumentList '--snapshot','snapshot.png' -Wait
+          Get-Content snapshot.png.txt -ErrorAction SilentlyContinue
+          Get-Content snapshot.png.error.txt -ErrorAction SilentlyContinue
+          Start-Process -FilePath out/x64/Snowdrift.exe -ArgumentList '--island-preview','island.png' -Wait
+          Get-Content island.png.error.txt -ErrorAction SilentlyContinue
+
+      - name: Live run on the desktop
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          New-Item -ItemType Directory -Force live | Out-Null
+          $env:SNOWDRIFT_DEBUG = "$pwd\live"
+          Start-Process notepad
+          Start-Sleep -Seconds 2
+          $app = Start-Process -FilePath out/x64/Snowdrift.exe -PassThru
+          Start-Sleep -Seconds 28
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          $g = [System.Drawing.Graphics]::FromImage($bmp)
+          $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size, [System.Drawing.CopyPixelOperation]::SourceCopy -bor [System.Drawing.CopyPixelOperation]::CaptureBlt)
+          $bmp.Save("$pwd\live\screen.png")
+          Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
+          Get-Content "$env:APPDATA\Snowdrift\snowdrift.log" -ErrorAction SilentlyContinue
+          Get-Content live\log.txt -ErrorAction SilentlyContinue
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path out/x64/Snowdrift.exe -DestinationPath Snowdrift-Windows-x64.zip
+          Compress-Archive -Path out/arm64/Snowdrift.exe -DestinationPath Snowdrift-Windows-ARM64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: Snowdrift-Windows-*.zip
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-checks
+          path: |
+            selftest.txt
+            snapshot.png
+            snapshot.png.txt
+            island.png
+            live/
+            *.error.txt
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: ./build.sh
+
+      - name: Self-test
+        run: build/bin/Snowdrift --selftest
+
+      - name: Package
+        run: ditto -c -k --keepParent build/Snowdrift.app Snowdrift-macOS.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: Snowdrift-macOS.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/windows/*.zip
+            dist/macos/*.zip
+          generate_release_notes: true
