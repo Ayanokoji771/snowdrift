@@ -6,6 +6,7 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading.Tasks;
 using WM = System.Windows.Media;
 using WMI = System.Windows.Media.Imaging;
 using W = System.Windows;
@@ -203,6 +204,8 @@ namespace Snowdrift
 
                 Check(!sim.DebugHasNaN() && !s2.DebugHasNaN(), "no NaN");
 
+                GestureChecks(Check);
+
                 var atlas = new Atlas();
                 int lit = 0;
                 for (int i = 3; i < atlas.Pixels.Length; i += 4) if (atlas.Pixels[i] > 0) lit++;
@@ -215,6 +218,13 @@ namespace Snowdrift
                 int drawn = 0;
                 for (int i = 3; i < px.Length; i += 4) if (px[i] > 0) drawn++;
                 Check(drawn > 1000, $"Direct3D draws the snow ({drawn} pixels, {batch.Count} vertices)");
+
+                int withDrifts = batch.Count;
+                sim.WindowAlpha = 0;
+                batch.Clear();
+                sim.Build(batch);
+                Check(batch.Count < withDrifts, $"snow on windows steps aside during gestures ({withDrifts} → {batch.Count} vertices)");
+                sim.WindowAlpha = 1;
             }
             catch (Exception e)
             {
@@ -223,6 +233,76 @@ namespace Snowdrift
             }
             File.WriteAllText(outPath, sb.ToString());
             return ok;
+        }
+
+        private static List<Contact> Hand(int fingers, float x, float y)
+        {
+            var list = new List<Contact>();
+            for (int i = 0; i < fingers; i++) list.Add(new Contact(i, x + i * 9, y + (i % 2) * 3));
+            return list;
+        }
+
+        /// <summary>Touchpad swipes with made-up fingers, and the spring the animations settle on.</summary>
+        private static void GestureChecks(Action<bool, string> Check)
+        {
+            {
+                var rec = new SwipeRecognizer { Fingers = 4 };
+                SwipeAxis? axis = null;
+                float lastDx = 0, vx = 0;
+                int ended = 0;
+                rec.Began += (a, dx, dy) => axis = a;
+                rec.Moved += (dx, dy) => lastDx = dx;
+                rec.Ended += (x, y) => { ended++; vx = x; };
+                double t = 0;
+                for (int i = 0; i <= 30; i++) { rec.Feed(Hand(4, 60 - i * 1.4f, 30), t); t += 0.008; }
+                rec.Feed(Hand(3, -20, 30), t);   // one finger lifts first: its jump must not count
+                t += 0.008;
+                rec.Feed(Hand(0, 0, 0), t);
+                Check(axis == SwipeAxis.Horizontal && lastDx < -38 && lastDx > -46 && ended == 1 && vx < -100,
+                      $"four-finger swipe to the left (moved {lastDx:0} mm, {vx:0} mm/s)");
+            }
+            {
+                var rec = new SwipeRecognizer { Fingers = 4 };
+                SwipeAxis? axis = null;
+                float lastDy = 0;
+                rec.Began += (a, dx, dy) => axis = a;
+                rec.Moved += (dx, dy) => lastDy = dy;
+                double t = 0;
+                for (int i = 0; i <= 20; i++) { rec.Feed(Hand(4, 30, 10 + i * 1.2f), t); t += 0.008; }
+                rec.Feed(Hand(0, 0, 0), t);
+                Check(axis == SwipeAxis.Vertical && lastDy > 20, $"four-finger swipe down ({lastDy:0} mm)");
+            }
+            {
+                var rec = new SwipeRecognizer { Fingers = 4 };
+                int began = 0;
+                rec.Began += (a, dx, dy) => began++;
+                double t = 0;
+                for (int i = 0; i <= 30; i++) { rec.Feed(Hand(3, 60 - i * 1.4f, 30), t); t += 0.008; }
+                rec.Feed(Hand(0, 0, 0), t);
+                for (int i = 0; i <= 30; i++) { t += 0.008; rec.Feed(Hand(4, 40 + (i % 2) * 1.5f, 30), t); }
+                rec.Feed(Hand(0, 0, 0), t);
+                for (int i = 0; i <= 30; i++) { t += 0.008; rec.Feed(Hand(5, 60 - i * 1.4f, 30), t); }
+                Check(began == 0, "no gesture from three fingers, a resting hand or five fingers");
+            }
+            {
+                var sp = new Spring { X = -0.6f, V = -2 };
+                float min = 0;
+                for (int i = 0; i < 60; i++) { sp.Step(-1, 1f / 60); min = MathF.Min(min, sp.X); }
+                var back = new Spring { X = 0.3f, V = 0 };
+                float low = 1;
+                for (int i = 0; i < 60; i++) { back.Step(0, 1f / 60); low = MathF.Min(low, back.X); }
+                Check(sp.Settled(-1) && min > -1.01f && back.Settled(0) && low > -0.01f,
+                      $"the spring lands softly within a second, no wobble ({min:0.000}, {low:0.000})");
+            }
+            Check(GestureMath.SwitchTarget(-0.6f, 0, true, true) == -1 && GestureMath.SwitchTarget(-0.6f, 0, true, false) == 0 &&
+                  GestureMath.SwitchTarget(-0.15f, -4, true, true) == -1 && GestureMath.SwitchTarget(0.2f, 0, true, true) == 0 &&
+                  GestureMath.SwitchTarget(-0.6f, 3, true, true) == 0 && GestureMath.SwitchTarget(0.7f, 0, true, true) == 1,
+                  "a long drag or a quick flick switches; a short or reversed one goes back");
+            Check(MathF.Abs(GestureMath.Rubber(5)) < 0.1f && GestureMath.Rubber(0.05f) > 0 && GestureMath.Rubber(0.05f) < 0.05f &&
+                  MathF.Abs(GestureMath.DesktopShown(0.8f, false, true)) < 0.1f && GestureMath.DesktopShown(-0.8f, false, true) == -0.8f,
+                  "the first and last desktops stretch like rubber");
+            Check(GestureMath.Commit(0.5f, 0) && !GestureMath.Commit(0.1f, 0) && GestureMath.Commit(0.15f, 2) && !GestureMath.Commit(0.5f, -3),
+                  "show-desktop swipes go through on distance or speed");
         }
     }
 
@@ -365,6 +445,170 @@ namespace Snowdrift
             using var fs = File.Create(path);
             enc.Save(fs);
             return true;
+        }
+    }
+}
+
+namespace Snowdrift
+{
+    /// <summary>--gesture-demo folder: plays the touchpad gestures with made-up fingers on the real desktop
+    /// (build machine only: it creates a second virtual desktop) and saves screenshots from the middle of each.</summary>
+    internal static class GestureDemo
+    {
+        public static bool Run(string dir)
+        {
+            Directory.CreateDirectory(dir);
+            var log = new StringBuilder();
+            bool ok = false;
+            var app = new W.Application { ShutdownMode = W.ShutdownMode.OnExplicitShutdown };
+            app.Startup += async (s, e) =>
+            {
+                try { ok = await Script(dir, log); }
+                catch (Exception ex) { log.AppendLine("FAIL " + ex); }
+                finally
+                {
+                    File.WriteAllText(Path.Combine(dir, "gestures.txt"), log.ToString());
+                    app.Shutdown();
+                }
+            };
+            app.Run();
+            return ok;
+        }
+
+        private static string Where()
+        {
+            var order = VirtualDesktops.Order();
+            int i = order.IndexOf(VirtualDesktops.Current(order));
+            return $"desktop {i + 1} of {order.Count}";
+        }
+
+        private static int DesktopIndex()
+        {
+            var order = VirtualDesktops.Order();
+            return order.IndexOf(VirtualDesktops.Current(order));
+        }
+
+        private static async Task<bool> Script(string dir, StringBuilder log)
+        {
+            bool ok = true;
+            void Say(string line) => log.AppendLine(line);
+            void Expect(bool cond, string what)
+            {
+                Say((cond ? "PASS " : "FAIL ") + what);
+                if (!cond) ok = false;
+            }
+
+            var g = new SmoothGestures { ForceActive = true, Fingers = 4, PadWidthMm = 100, PadHeightMm = 65 };
+            EventHandler tick = (s, e) => g.Tick();
+            WM.CompositionTarget.Rendering += tick;
+
+            int shot = 0;
+            void Shot(string name)
+            {
+                try
+                {
+                    var b = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+                    using var bmp = new Bitmap(b.Width, b.Height);
+                    using (var gr = Graphics.FromImage(bmp)) gr.CopyFromScreen(b.Location, Point.Empty, b.Size);
+                    bmp.Save(Path.Combine(dir, $"{++shot:00}-{name}.png"), ImageFormat.Png);
+                }
+                catch (Exception e) { Say("screenshot failed: " + e.Message); }
+            }
+
+            Say("Windows " + Environment.OSVersion.Version + ", animations " + NativeGestures.Animations());
+            Say("start: " + Where());
+            System.Diagnostics.Process.Start("notepad.exe");
+            await Task.Delay(2000);
+            if (VirtualDesktops.Order().Count < 2)
+            {
+                Keys.Chord(Keys.Ctrl, Keys.Win, Keys.D);
+                await Task.Delay(2000);
+                Say("new desktop: " + Where());
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("powershell.exe",
+                    "-NoExit -Command \"$Host.UI.RawUI.BackgroundColor='DarkMagenta'; Clear-Host; 'Desktop 2'\"") { UseShellExecute = true });
+                await Task.Delay(3000);
+                Keys.Chord(Keys.Ctrl, Keys.Win, Keys.Left);
+                await Task.Delay(2000);
+            }
+            Say("ready: " + Where());
+            var order = VirtualDesktops.Order();
+            foreach (var id in order) Say($"  desktop {order.IndexOf(id) + 1}: {Scene.OnDesktop(id).Count} windows elsewhere");
+            Say($"  here: {Scene.Here().Count} windows, desktop layers {Scene.Background().Count}");
+            Shot("before");
+
+            // A finger swipe: four fingers move (dx, dy) mm; screenshots at the given fractions of the way.
+            async Task Swipe(float dx, float dy, float[] marks, string name, double hold = 0)
+            {
+                const float speed = 110;   // mm/s
+                float length = MathF.Sqrt(dx * dx + dy * dy);
+                double t0 = MotionClock.Now, paused = 0;
+                int next = 0;
+                while (true)
+                {
+                    double now = MotionClock.Now;
+                    float f = MathF.Min(1, (float)((now - t0 - paused) * speed / length));
+                    g.Feed(Hand(30 + dx * f, 25 + dy * f), now);
+                    if (next < marks.Length && f >= marks[next])
+                    {
+                        await Task.Delay(40);
+                        double a = MotionClock.Now;
+                        Shot($"{name}-{(int)(marks[next] * 100)}");
+                        next++;
+                        // Keep the fingers on the pad while the screenshot was taken.
+                        g.Feed(Hand(30 + dx * f, 25 + dy * f), MotionClock.Now);
+                        paused += MotionClock.Now - a + 0.04;
+                    }
+                    if (f >= 1) break;
+                    await Task.Delay(8);
+                }
+                // Fingers that stop before lifting have no momentum left.
+                for (double h0 = MotionClock.Now; MotionClock.Now - h0 < hold;)
+                {
+                    g.Feed(Hand(30 + dx, 25 + dy), MotionClock.Now);
+                    await Task.Delay(8);
+                }
+                g.Feed(new List<Contact>(), MotionClock.Now);
+                await Task.Delay(110);
+                Shot($"{name}-release");
+                for (int i = 0; i < 80 && g.Busy; i++) await Task.Delay(50);
+                await Task.Delay(400);
+                Shot($"{name}-after");
+                Say($"{name}: {g.LastResult}; now {Where()}");
+            }
+
+            int start = DesktopIndex();
+            StageWindow.OpaqueBase = false;
+            await Swipe(-42, 0, new[] { 0.25f, 0.5f, 0.8f }, "switch-right");
+            Expect(DesktopIndex() == start + 1, "four fingers to the left: the desktop on the right slides in and Windows switches to it");
+
+            StageWindow.OpaqueBase = true;
+            int here = Scene.Here().Count;
+            await Swipe(0, 30, new[] { 0.35f, 0.7f }, "show-desktop");
+            Expect(here > 0 && Scene.Here().Count == 0, $"swipe down tucks every window away ({here} → {Scene.Here().Count})");
+
+            await Swipe(0, -30, new[] { 0.35f, 0.7f }, "windows-back");
+            Expect(Scene.Here().Count == here, $"swipe up brings them back ({Scene.Here().Count} of {here})");
+
+            StageWindow.OpaqueBase = false;
+            await Swipe(42, 0, new[] { 0.5f }, "switch-left");
+            Expect(DesktopIndex() == start, "four fingers to the right: back to the first desktop");
+
+            await Swipe(32, 0, new[] { 0.4f, 0.9f }, "rubber");
+            Expect(DesktopIndex() == start && g.LastResult == "back", "no desktop on the left: the swipe stretches and springs back");
+
+            await Swipe(-12, 0, new[] { 0.9f }, "short", 0.3);
+            Expect(DesktopIndex() == start && g.LastResult == "back", "a short swipe springs back");
+
+            WM.CompositionTarget.Rendering -= tick;
+            g.Dispose();
+            return ok;
+        }
+
+        private static List<Contact> Hand(float x, float y)
+        {
+            var list = new List<Contact>();
+            for (int i = 0; i < 4; i++) list.Add(new Contact(i, x + i * 9, y + (i % 2) * 3));
+            return list;
         }
     }
 }

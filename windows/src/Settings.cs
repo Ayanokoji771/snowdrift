@@ -46,6 +46,11 @@ namespace Snowdrift
         public double PauseUntil { get; set; } = 0;
         public long TotalFlakes { get; set; } = 0;
         public bool WelcomeShown { get; set; } = false;
+        /// <summary>Mac-style touchpad gestures: desktops follow the fingers, windows tuck into the taskbar.</summary>
+        public bool Gestures { get; set; } = true;
+        /// <summary>3 or 4 fingers.</summary>
+        public int GestureFingers { get; set; } = 4;
+        public bool GesturesTipShown { get; set; } = false;
     }
 
     /// <summary>Settings live in %APPDATA%\Snowdrift\settings.json and never leave this PC.</summary>
@@ -80,6 +85,7 @@ namespace Snowdrift
             D.FullScreenMode = Math.Clamp(D.FullScreenMode, 0, 2);
             D.FlakeSize = Math.Clamp(D.FlakeSize, 0, 2);
             D.SnowWhere = Math.Clamp(D.SnowWhere, 0, 1);
+            D.GestureFingers = Math.Clamp(D.GestureFingers, 3, 4);
             D.HiddenApps ??= new Dictionary<string, string>();
             D.ShownApps ??= new Dictionary<string, string>();
         }

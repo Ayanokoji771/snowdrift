@@ -21,6 +21,8 @@ namespace Snowdrift
         private WF.NotifyIcon tray;
         private WF.ContextMenuStrip menu;
         private IslandWindow island;
+        private SmoothGestures gestures;
+        private Action balloonClick;
         private HwndSource hotkeyWindow;
         private readonly Dictionary<int, Action> hotkeys = new Dictionary<int, Action>();
         private readonly Stopwatch clock = Stopwatch.StartNew();
@@ -69,6 +71,10 @@ namespace Snowdrift
             SetupTray();
             SetupHotkeys();
 
+            gestures = new SmoothGestures();
+            gestures.Start();
+            Log.Write(gestures.HasTouchpad ? "Touchpad found: smooth gestures ready" : "No precision touchpad: smooth gestures off");
+
             MusicService.Shared.TrackChanged += IslandPuff;
             MusicService.Shared.Start();
             island = new IslandWindow(MusicService.Shared);
@@ -86,6 +92,20 @@ namespace Snowdrift
                     L("Настройки — значок снежинки в трее. Ctrl+Alt+S — включить или выключить снег.",
                       "Settings are behind the snowflake in the tray. Ctrl+Alt+S turns the snow on or off."), WF.ToolTipIcon.None);
             }
+
+            // Once: tell people with a touchpad how to switch on the Mac-style gestures.
+            var tip = new DispatcherTimer { Interval = TimeSpan.FromSeconds(12) };
+            tip.Tick += (s, e) =>
+            {
+                tip.Stop();
+                if (D.GesturesTipShown || !D.Gestures || !gestures.HasTouchpad || !NativeGestures.On(D.GestureFingers)) return;
+                Settings.S.Change(d => d.GesturesTipShown = true);
+                balloonClick = ShowGestureSetup;
+                tray.ShowBalloonTip(10000, L("Плавные жесты как на Mac ✋", "Mac-smooth gestures ✋"),
+                    L($"Свайп {FingersText(D.GestureFingers)} может двигать рабочие столы вслед за пальцами. Нажмите, чтобы включить.",
+                      $"A {D.GestureFingers}-finger swipe can slide desktops along with your fingers. Click to turn it on."), WF.ToolTipIcon.None);
+            };
+            tip.Start();
         }
 
         private bool stopped;
@@ -103,6 +123,7 @@ namespace Snowdrift
                 Settings.S.Save();
             }
             if (tray != null) tray.Visible = false;
+            gestures?.Dispose();
             if (hotkeyWindow != null)
                 foreach (int id in hotkeys.Keys) Native.UnregisterHotKey(hotkeyWindow.Handle, id);
             foreach (var o in overlays) o.Dispose();
@@ -171,6 +192,11 @@ namespace Snowdrift
                 o.Show(d.Enabled);
             }
             UpdateHidden();
+            if (gestures != null)
+            {
+                gestures.Enabled = d.Gestures;
+                gestures.Fingers = d.GestureFingers;
+            }
             if (island != null)
             {
                 if (d.Island && !island.IsVisible) island.Show();
@@ -288,6 +314,7 @@ namespace Snowdrift
             lastTime = now;
             if (dt <= 0 || dt > 0.1f) dt = 1f / 60;
 
+            gestures?.Tick();
             fg = ForegroundInfo.Read(now);
             UpdateFrontApp();
 
@@ -295,7 +322,12 @@ namespace Snowdrift
             {
                 var snap = WindowTracker.Shared.Poll(now, fg, monitors);
                 Native.GetCursorPos(out var cursor);
-                foreach (var o in overlays) o.Frame(now, dt, snap, fg, hiddenForFrontApp, cursor);
+                float windowSnow = gestures?.SnowWindowAlpha ?? 1;
+                foreach (var o in overlays)
+                {
+                    o.Sim.WindowAlpha = windowSnow;
+                    o.Frame(now, dt, snap, fg, hiddenForFrontApp, cursor);
+                }
             }
             if (island != null && D.Island)
             {
@@ -391,6 +423,8 @@ namespace Snowdrift
             menu = new WF.ContextMenuStrip { ShowCheckMargin = true, ShowImageMargin = true };
             menu.Opening += (s, e) => { BuildMenu(); e.Cancel = false; };
             tray = new WF.NotifyIcon { Icon = iconOn, Text = "Snowdrift", Visible = true, ContextMenuStrip = menu };
+            tray.BalloonTipClicked += (s, e) => { var a = balloonClick; balloonClick = null; a?.Invoke(); };
+            tray.BalloonTipClosed += (s, e) => balloonClick = null;
             tray.MouseUp += (s, e) =>
             {
                 if (e.Button != WF.MouseButtons.Left) return;
@@ -503,6 +537,7 @@ namespace Snowdrift
             islandMenu.DropDownItems.Add(Item(L("Показывать остров с музыкой", "Show the music island"), () => Change(x => x.Island = !x.Island), d.Island));
             islandMenu.DropDownItems.Add(Item(L("Снежный выдох при смене трека", "Snow puff on a new track"), () => Change(x => x.IslandPuff = !x.IslandPuff), d.IslandPuff));
             m.Add(islandMenu);
+            m.Add(GesturesSubmenu());
 
             var festive = new WF.ToolStripMenuItem(L("Новогоднее 🎄", "Holiday 🎄"));
             festive.DropDownItems.Add(Item(L("Запустить салют 🎆", "Launch fireworks 🎆"), Fireworks, false, "Ctrl+Alt+F"));
@@ -530,6 +565,60 @@ namespace Snowdrift
             m.Add(Item(L("Запускать вместе с Windows", "Start with Windows"), () => SetAutoStart(!AutoStart), AutoStart));
             m.Add(Item(L("О Snowdrift", "About Snowdrift"), ShowAbout));
             m.Add(Item(L("Выйти", "Quit"), Quit));
+        }
+
+        private static string FingersText(int n) => n == 3 ? "тремя пальцами" : "четырьмя пальцами";
+
+        /// <summary>Mac-style touchpad gestures: what they do, whether they work right now, and how to switch them on.</summary>
+        private WF.ToolStripMenuItem GesturesSubmenu()
+        {
+            var d = D;
+            var g = new WF.ToolStripMenuItem(L("Плавные жесты как на Mac ✋", "Mac-smooth gestures ✋"));
+            var items = g.DropDownItems;
+            bool pad = gestures != null && gestures.HasTouchpad;
+            bool windowsOwn = NativeGestures.On(d.GestureFingers);
+            if (!pad)
+                items.Add(Info(L("Сенсорная панель не найдена", "No precision touchpad found")));
+            else if (!d.Gestures)
+                items.Add(Info(L("Жесты выключены", "Gestures are off")));
+            else if (windowsOwn)
+            {
+                items.Add(Info(L($"⚠ Сейчас свайп {FingersText(d.GestureFingers)} занят жестами Windows",
+                                 $"⚠ Windows' own {d.GestureFingers}-finger swipes are on")));
+                var fix = Item(L("Включить: отключить жесты Windows…", "Turn on: switch off Windows' swipes…"), ShowGestureSetup);
+                fix.Font = new SD.Font(fix.Font, SD.FontStyle.Bold);
+                items.Add(fix);
+            }
+            else
+                items.Add(Info(L($"✓ Работают — свайп {FingersText(d.GestureFingers)}", $"✓ Working — {d.GestureFingers}-finger swipes")));
+            items.Add(new WF.ToolStripSeparator());
+            items.Add(Info(L("← →  соседний рабочий стол едет за пальцами", "← →  the next desktop follows your fingers")));
+            items.Add(Info(L("↓  окна прячутся в панель задач", "↓  windows tuck into the taskbar")));
+            items.Add(Info(L("↑  окна возвращаются или открываются все окна", "↑  windows come back, or Task View opens")));
+            items.Add(new WF.ToolStripSeparator());
+            items.Add(Item(L("Включены", "On"), () => Change(x => x.Gestures = !x.Gestures), d.Gestures));
+            items.Add(Item(L("Тремя пальцами", "Three fingers"), () => Change(x => x.GestureFingers = 3), d.GestureFingers == 3));
+            items.Add(Item(L("Четырьмя пальцами", "Four fingers"), () => Change(x => x.GestureFingers = 4), d.GestureFingers == 4));
+            if (pad)
+            {
+                items.Add(new WF.ToolStripSeparator());
+                items.Add(Item(L("Настройки сенсорной панели Windows…", "Windows touchpad settings…"), ShowGestureSetup));
+            }
+            return g;
+        }
+
+        private void ShowGestureSetup()
+        {
+            int n = D.GestureFingers;
+            var answer = WF.MessageBox.Show(L(
+                $"Чтобы один свайп не делал два дела сразу, плавные жесты Snowdrift работают, когда жесты Windows {FingersText(n)} выключены.\n\n" +
+                $"Сейчас откроются параметры сенсорной панели. Раскройте «Жесты {(n == 3 ? "тремя" : "четырьмя")} пальцами» и в списке «Прокрутка» выберите «Ничего». " +
+                "Касания и остальные жесты останутся как были.\n\nСразу после этого рабочие столы будут ехать вслед за пальцами. Вернуть жесты Windows можно там же.",
+                $"So that one swipe never does two things, Snowdrift's gestures work while Windows' own {n}-finger swipes are off.\n\n" +
+                $"Touchpad settings will open now. Expand “{(n == 3 ? "Three" : "Four")}-finger gestures” and set “Swipes” to “Nothing”. " +
+                "Taps and other gestures stay as they are.\n\nRight after that, desktops slide along with your fingers. You can bring Windows' swipes back in the same place."),
+                L("Плавные жесты как на Mac ✋", "Mac-smooth gestures ✋"), WF.MessageBoxButtons.OKCancel, WF.MessageBoxIcon.Information);
+            if (answer == WF.DialogResult.OK) NativeGestures.OpenSettings();
         }
 
         private static SD.Image AppIcon(string path)
