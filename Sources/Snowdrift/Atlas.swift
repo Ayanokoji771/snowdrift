@@ -8,6 +8,8 @@ enum Sprite: Int, CaseIterable {
     case ballBase, ballTex, glow, bulb
     case coal, carrot, twig, bucket, topHat, scarf
     case frost
+    // Spring, summer and autumn. Painted in white and greys so each can be tinted any colour.
+    case petal, leaf, maple, fluff, wing
 }
 
 struct UVRect {
@@ -73,6 +75,11 @@ final class Atlas {
         place(.topHat, 160, 160) { c, w, h in Atlas.drawTopHat(c, w, h) }
         place(.scarf, 224, 128) { c, w, h in Atlas.drawScarf(c, w, h) }
         place(.frost, 256, 256) { c, w, h in Atlas.drawFrost(c, w, h) }
+        place(.petal, 64, 64) { c, w, h in Atlas.drawPetal(c, w, h) }
+        place(.leaf, 96, 96) { c, w, h in Atlas.drawLeaf(c, w, h) }
+        place(.maple, 128, 128) { c, w, h in Atlas.drawMaple(c, w, h) }
+        place(.fluff, 64, 64) { c, w, h in Atlas.drawFluff(c, w, h) }
+        place(.wing, 128, 128) { c, w, h in Atlas.drawWing(c, w, h) }
 
         let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: n, height: n, mipmapped: true)
         desc.usage = [.shaderRead]
@@ -400,5 +407,168 @@ final class Atlas {
         band.addQuadCurve(to: CGPoint(x: w * 0.04, y: h * 0.34), control: CGPoint(x: w * 0.5, y: h * 0.56))
         band.closeSubpath()
         striped(band, vertical: false)
+    }
+
+    // MARK: - Seasons
+
+    /// A cherry-blossom petal: base at the bottom, a little notch at the tip.
+    static func drawPetal(_ c: CGContext, _ w: CGFloat, _ h: CGFloat) {
+        let p = CGMutablePath()
+        p.move(to: CGPoint(x: w * 0.5, y: h * 0.95))
+        p.addCurve(to: CGPoint(x: w * 0.40, y: h * 0.10), control1: CGPoint(x: w * 0.02, y: h * 0.74), control2: CGPoint(x: w * 0.06, y: h * 0.14))
+        p.addLine(to: CGPoint(x: w * 0.5, y: h * 0.22))
+        p.addLine(to: CGPoint(x: w * 0.60, y: h * 0.10))
+        p.addCurve(to: CGPoint(x: w * 0.5, y: h * 0.95), control1: CGPoint(x: w * 0.94, y: h * 0.14), control2: CGPoint(x: w * 0.98, y: h * 0.74))
+        p.closeSubpath()
+        c.saveGState()
+        c.addPath(p)
+        c.clip()
+        radial(c, colors: [(1, 1, 1, 1), (0.97, 0.97, 0.97, 1), (0.80, 0.80, 0.80, 1)], stops: [0, 0.55, 1],
+               from: CGPoint(x: w * 0.5, y: h * 0.32), to: CGPoint(x: w * 0.5, y: h * 0.4), radius: h * 0.62)
+        c.setStrokeColor(red: 0.86, green: 0.86, blue: 0.86, alpha: 0.7)
+        c.setLineWidth(1.2)
+        for dx in [-0.12, 0.0, 0.12] as [CGFloat] {
+            c.move(to: CGPoint(x: w * 0.5, y: h * 0.9))
+            c.addQuadCurve(to: CGPoint(x: w * (0.5 + dx * 1.6), y: h * 0.3), control: CGPoint(x: w * (0.5 + dx), y: h * 0.6))
+            c.strokePath()
+        }
+        c.restoreGState()
+    }
+
+    /// An oval leaf with veins and a short stalk, tip up.
+    static func drawLeaf(_ c: CGContext, _ w: CGFloat, _ h: CGFloat) {
+        let p = CGMutablePath()
+        p.move(to: CGPoint(x: w * 0.5, y: h * 0.05))
+        p.addCurve(to: CGPoint(x: w * 0.5, y: h * 0.84), control1: CGPoint(x: w * 0.98, y: h * 0.30), control2: CGPoint(x: w * 0.82, y: h * 0.76))
+        p.addCurve(to: CGPoint(x: w * 0.5, y: h * 0.05), control1: CGPoint(x: w * 0.18, y: h * 0.76), control2: CGPoint(x: w * 0.02, y: h * 0.30))
+        p.closeSubpath()
+        c.saveGState()
+        c.addPath(p)
+        c.clip()
+        linear(c, colors: [(1, 1, 1, 1), (0.90, 0.90, 0.90, 1), (0.74, 0.74, 0.74, 1)], stops: [0, 0.55, 1],
+               from: CGPoint(x: w * 0.2, y: h * 0.1), to: CGPoint(x: w * 0.8, y: h * 0.85))
+        c.setStrokeColor(red: 0.6, green: 0.6, blue: 0.6, alpha: 0.85)
+        c.setLineCap(.round)
+        c.setLineWidth(w * 0.028)
+        c.move(to: CGPoint(x: w * 0.5, y: h * 0.86))
+        c.addLine(to: CGPoint(x: w * 0.5, y: h * 0.1))
+        c.strokePath()
+        c.setLineWidth(w * 0.014)
+        for k in 1...4 {
+            let y = h * (0.78 - CGFloat(k) * 0.14)
+            for side in [-1.0, 1.0] as [CGFloat] {
+                c.move(to: CGPoint(x: w * 0.5, y: y))
+                c.addQuadCurve(to: CGPoint(x: w * (0.5 + side * 0.3), y: y - h * 0.12), control: CGPoint(x: w * (0.5 + side * 0.15), y: y - h * 0.02))
+                c.strokePath()
+            }
+        }
+        c.restoreGState()
+        c.setStrokeColor(red: 0.55, green: 0.55, blue: 0.55, alpha: 1)
+        c.setLineWidth(w * 0.035)
+        c.setLineCap(.round)
+        c.move(to: CGPoint(x: w * 0.5, y: h * 0.82))
+        c.addQuadCurve(to: CGPoint(x: w * 0.54, y: h * 0.98), control: CGPoint(x: w * 0.5, y: h * 0.92))
+        c.strokePath()
+    }
+
+    /// A five-lobed maple leaf, tip up.
+    static func drawMaple(_ c: CGContext, _ w: CGFloat, _ h: CGFloat) {
+        let cx = w * 0.5, cy = h * 0.56, R = w * 0.46
+        let p = CGMutablePath()
+        let steps = 240
+        for i in 0...steps {
+            let t = CGFloat(i) / CGFloat(steps) * 2 * .pi            // 0 = straight up
+            var r = 0.42 + 0.58 * pow(abs(cos(t * 2.5)), 2.2)
+            r *= 0.74 + 0.26 * cos(t)                                  // lower lobes are smaller
+            r *= 1 + 0.07 * sin(t * 15)                                // little teeth
+            if abs(t - .pi) < 0.22 { r *= 0.55 }                       // notch for the stalk
+            let x = cx + sin(t) * R * r, y = cy - cos(t) * R * r
+            if i == 0 { p.move(to: CGPoint(x: x, y: y)) } else { p.addLine(to: CGPoint(x: x, y: y)) }
+        }
+        p.closeSubpath()
+        c.saveGState()
+        c.addPath(p)
+        c.clip()
+        radial(c, colors: [(1, 1, 1, 1), (0.92, 0.92, 0.92, 1), (0.76, 0.76, 0.76, 1)], stops: [0, 0.6, 1],
+               from: CGPoint(x: cx, y: cy), to: CGPoint(x: cx, y: cy), radius: R)
+        c.setStrokeColor(red: 0.62, green: 0.62, blue: 0.62, alpha: 0.85)
+        c.setLineCap(.round)
+        c.setLineWidth(w * 0.018)
+        for k in 0..<5 {
+            let t = CGFloat(k) / 5 * 2 * .pi
+            let reach = R * (0.74 + 0.26 * cos(t)) * 0.92
+            c.move(to: CGPoint(x: cx, y: cy))
+            c.addLine(to: CGPoint(x: cx + sin(t) * reach, y: cy - cos(t) * reach))
+            c.strokePath()
+        }
+        c.restoreGState()
+        c.setStrokeColor(red: 0.55, green: 0.55, blue: 0.55, alpha: 1)
+        c.setLineWidth(w * 0.03)
+        c.setLineCap(.round)
+        c.move(to: CGPoint(x: cx, y: cy))
+        c.addQuadCurve(to: CGPoint(x: cx + w * 0.05, y: h * 0.98), control: CGPoint(x: cx, y: h * 0.85))
+        c.strokePath()
+    }
+
+    /// A dandelion seed: a feathery parachute on a thin stalk.
+    static func drawFluff(_ c: CGContext, _ w: CGFloat, _ h: CGFloat) {
+        let top = CGPoint(x: w * 0.5, y: h * 0.34)
+        c.setLineCap(.round)
+        c.setStrokeColor(red: 1, green: 1, blue: 1, alpha: 0.85)
+        c.setLineWidth(1.1)
+        for k in 0..<17 {
+            let a = -CGFloat.pi + CGFloat(k) / 16 * CGFloat.pi * 1.0 - 0.0
+            let len = w * 0.30 * (0.85 + 0.15 * sin(CGFloat(k) * 1.7))
+            let end = CGPoint(x: top.x + cos(a) * len, y: top.y + sin(a) * len * 0.85)
+            c.move(to: top)
+            c.addLine(to: end)
+            c.strokePath()
+            c.setFillColor(red: 1, green: 1, blue: 1, alpha: 0.8)
+            c.fillEllipse(in: CGRect(x: end.x - 1.3, y: end.y - 1.3, width: 2.6, height: 2.6))
+        }
+        c.setStrokeColor(red: 0.92, green: 0.92, blue: 0.92, alpha: 0.9)
+        c.setLineWidth(1.3)
+        c.move(to: top)
+        c.addLine(to: CGPoint(x: w * 0.5, y: h * 0.80))
+        c.strokePath()
+        c.setFillColor(red: 0.72, green: 0.72, blue: 0.72, alpha: 1)
+        c.fillEllipse(in: CGRect(x: w * 0.47, y: h * 0.78, width: w * 0.06, height: h * 0.14))
+    }
+
+    /// The right wings of a butterfly (the body runs along the left edge), with a dark rim and pale spots.
+    static func drawWing(_ c: CGContext, _ w: CGFloat, _ h: CGFloat) {
+        let upper = CGMutablePath()
+        upper.move(to: CGPoint(x: w * 0.04, y: h * 0.48))
+        upper.addCurve(to: CGPoint(x: w * 0.92, y: h * 0.10), control1: CGPoint(x: w * 0.20, y: h * 0.10), control2: CGPoint(x: w * 0.62, y: h * 0.02))
+        upper.addCurve(to: CGPoint(x: w * 0.06, y: h * 0.52), control1: CGPoint(x: w * 1.02, y: h * 0.30), control2: CGPoint(x: w * 0.70, y: h * 0.56))
+        upper.closeSubpath()
+        let lower = CGMutablePath()
+        lower.move(to: CGPoint(x: w * 0.05, y: h * 0.52))
+        lower.addCurve(to: CGPoint(x: w * 0.66, y: h * 0.92), control1: CGPoint(x: w * 0.56, y: h * 0.52), control2: CGPoint(x: w * 0.82, y: h * 0.74))
+        lower.addCurve(to: CGPoint(x: w * 0.06, y: h * 0.56), control1: CGPoint(x: w * 0.44, y: h * 1.02), control2: CGPoint(x: w * 0.16, y: h * 0.80))
+        lower.closeSubpath()
+        for (path, centre) in [(upper as CGPath, CGPoint(x: w * 0.4, y: h * 0.3)), (lower as CGPath, CGPoint(x: w * 0.32, y: h * 0.66))] {
+            c.saveGState()
+            c.addPath(path)
+            c.clip()
+            radial(c, colors: [(1, 1, 1, 1), (0.95, 0.95, 0.95, 1), (0.62, 0.62, 0.62, 1)], stops: [0, 0.6, 1],
+                   from: centre, to: centre, radius: w * 0.55)
+            c.setStrokeColor(red: 0.72, green: 0.72, blue: 0.72, alpha: 0.6)
+            c.setLineWidth(1.2)
+            for k in 0..<4 {
+                c.move(to: CGPoint(x: w * 0.05, y: h * 0.5))
+                c.addLine(to: CGPoint(x: centre.x + CGFloat(k - 1) * w * 0.18, y: centre.y + (centre.y < h * 0.5 ? -h * 0.25 : h * 0.22)))
+                c.strokePath()
+            }
+            c.restoreGState()
+            c.addPath(path)
+            c.setStrokeColor(red: 0.28, green: 0.28, blue: 0.28, alpha: 1)
+            c.setLineWidth(w * 0.045)
+            c.strokePath()
+        }
+        c.setFillColor(red: 1, green: 1, blue: 1, alpha: 0.95)
+        for (x, y, r) in [(0.80, 0.16, 0.025), (0.70, 0.12, 0.02), (0.86, 0.26, 0.02), (0.58, 0.82, 0.02), (0.48, 0.88, 0.018)] as [(CGFloat, CGFloat, CGFloat)] {
+            c.fillEllipse(in: CGRect(x: w * (x - r), y: h * (y - r), width: w * r * 2, height: h * r * 2))
+        }
     }
 }

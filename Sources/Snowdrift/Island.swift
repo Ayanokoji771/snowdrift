@@ -248,7 +248,7 @@ struct IslandView: View {
         }
         .frame(width: size.width + flare * 2, height: size.height)
         .overlay(alignment: .bottom) {
-            if state.expanded || wings {
+            if (state.expanded || wings) && Season.current == .winter {
                 Icicles(count: state.expanded ? 16 : 7, maxLength: state.expanded ? 17 : 7, drips: state.expanded && now.isPlaying)
                     .frame(width: max(10, size.width - (state.expanded ? 64 : 26)), height: state.expanded ? 60 : 22)
                     .offset(y: state.expanded ? 60 : 22)
@@ -616,20 +616,39 @@ struct IslandButton: View {
     }
 }
 
-/// Slow snowfall inside the open island.
+/// Slow snowfall inside the open island — or petals, fireflies or leaves, by season.
 struct InnerSnow: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30)) { ctx in
             Canvas { c, size in
                 let t = ctx.date.timeIntervalSinceReferenceDate
+                let season = Season.current
                 for i in 0..<36 {
-                    let speed = 7 + hash(i, 1) * 15
+                    let speed = (season == .summer ? 3 : 7) + hash(i, 1) * (season == .summer ? 5 : 15)
                     let r = 0.6 + hash(i, 2) * 1.5
                     let span = Double(size.height) + 10
                     let y = (hash(i, 3) * span + t * speed).truncatingRemainder(dividingBy: span) - 5
                     let x = hash(i, 4) * Double(size.width) + sin(t * (0.5 + hash(i, 5)) + Double(i)) * 7
                     let a = 0.1 + hash(i, 6) * 0.35
-                    c.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)), with: .color(.white.opacity(a)))
+                    switch season {
+                    case .winter:
+                        c.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)), with: .color(.white.opacity(a)))
+                    case .spring, .autumn:
+                        let palette: [Color] = season == .spring
+                            ? [Color(red: 1, green: 0.78, blue: 0.86), Color(red: 1, green: 0.68, blue: 0.80)]
+                            : [Color(red: 0.96, green: 0.56, blue: 0.12), Color(red: 0.88, green: 0.30, blue: 0.10), Color(red: 0.98, green: 0.76, blue: 0.18)]
+                        let col = palette[i % palette.count]
+                        var p = Path(ellipseIn: CGRect(x: -r * 1.6, y: -r * 0.8, width: r * 3.2, height: r * 1.6))
+                        p = p.applying(CGAffineTransform(rotationAngle: t * (hash(i, 7) - 0.5) * 3 + Double(i)))
+                        c.fill(p.offsetBy(dx: x, dy: y), with: .color(col.opacity(0.35 + a)))
+                    case .summer:
+                        let glow = max(0, sin(t * (1.2 + hash(i, 8)) + Double(i)))
+                        let g = 3 + glow * 4
+                        c.fill(Path(ellipseIn: CGRect(x: x - g, y: y - g, width: g * 2, height: g * 2)),
+                               with: .color(Color(red: 0.75, green: 1, blue: 0.35).opacity(0.25 * glow)))
+                        c.fill(Path(ellipseIn: CGRect(x: x - 1, y: y - 1, width: 2, height: 2)),
+                               with: .color(Color(red: 1, green: 1, blue: 0.7).opacity(0.3 + 0.7 * glow)))
+                    }
                 }
             }
         }

@@ -67,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             (kVK_ANSI_H, { [weak self] in self?.toggleFrontApp() }),
             (kVK_ANSI_D, { [weak self] in self?.shovel() }),
             (kVK_ANSI_F, { [weak self] in self?.fireworks() }),
+            (kVK_ANSI_X, { [weak self] in self?.removeSnowmen() }),
         ]
         for (code, action) in keys {
             if let hk = HotKey(keyCode: UInt32(code), modifiers: mods, action: action) { hotKeys.append(hk) }
@@ -246,10 +247,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func applySettings() {
+        let season = Season.resolve(settings.season)
+        Season.current = season
+        evening = Season.isEvening()
         let config = SimConfig(intensity: settings.intensity, wind: settings.wind, drifts: settings.drifts,
                                tool: settings.tool, garland: settings.garland, depth: settings.depth,
                                lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled, flakeSize: settings.flakeSize,
-                               melt: settings.melt, tree: settings.tree, frost: settings.frost, sparkle: settings.sparkle)
+                               melt: settings.melt, tree: settings.tree, frost: settings.frost, sparkle: settings.sparkle,
+                               season: season.rawValue, evening: evening)
+        // The menu bar icon follows the season too.
+        let symbol = ["snowflake", "camera.macro", "sun.max", "leaf"][season.rawValue]
+        if let button = statusItem?.button, button.image?.accessibilityDescription != symbol {
+            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: symbol)
+            button.image?.isTemplate = true
+        }
         updateHiddenForFrontApp()
         for (i, o) in overlays.enumerated() {
             var c = config
@@ -362,9 +373,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         overlays.forEach { $0.sim.clearSnow() }
     }
 
+    private func removeSnowmen() {
+        overlays.forEach { $0.sim.clearBalls() }
+    }
+
     private func fireworks() {
         if !settings.enabled { setEnabled(true) }
         overlays.forEach { $0.sim.festive.launchFireworks(seconds: 25) }
+    }
+
+    /// The season: by the calendar or fixed, the decoration in the corner, and what each season brings.
+    private func seasonsSubmenu() -> NSMenuItem {
+        let s = settings
+        let now = Season.resolve(s.season)
+        let item = NSMenuItem(title: L("Время года — \(now.name)", "Season — \(now.name)"), action: nil, keyEquivalent: "")
+        let m = NSMenu()
+        m.addItem(MenuAction(L("Само по календарю (сейчас \(Season.now().name))", "By the calendar (now \(Season.now().name))"),
+                             checked: s.season < 0) { s.season = -1 })
+        m.addItem(.separator())
+        for season in Season.allCases {
+            m.addItem(MenuAction(season.name, checked: s.season == season.rawValue) { s.season = season.rawValue })
+        }
+        m.addItem(.separator())
+        let decor = [L("Ёлка в углу экрана", "Christmas tree in the corner"), L("Сакура в углу экрана", "Cherry tree in the corner"),
+                     L("Подсолнухи в углу экрана", "Sunflowers in the corner"), L("Тыквы в углу экрана", "Pumpkins in the corner")][now.rawValue]
+        m.addItem(MenuAction(decor, checked: s.tree) { s.tree.toggle() })
+        m.addItem(.separator())
+        for line in [L("❄️ Зима — снег, снеговики, ёлка, гирлянда", "❄️ Winter — snow, snowmen, a tree, a garland"),
+                     L("🌸 Весна — лепестки сакуры и бабочки", "🌸 Spring — cherry petals and butterflies"),
+                     L("☀️ Лето — пух, подсолнухи, светлячки вечером", "☀️ Summer — fluff, sunflowers, fireflies at night"),
+                     L("🍂 Осень — листопад и тыквы со свечкой", "🍂 Autumn — falling leaves and lit pumpkins")] {
+            info(m, line)
+        }
+        item.submenu = m
+        return item
     }
 
     /// Menu item with its global shortcut shown on the right (⌃⌥ + key).
@@ -392,7 +434,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateStatusIcon()
     }
 
+    private var evening = false
+    private var seasonCheck = 0
+
     private func tick() {
+        // Every half minute: has the season (or evening) changed?
+        seasonCheck += 1
+        if seasonCheck >= 30 {
+            seasonCheck = 0
+            if Season.resolve(settings.season) != Season.current || Season.isEvening() != evening { applySettings() }
+        }
         if settings.checkUpdates && !checkingUpdates && Date().timeIntervalSince1970 - settings.lastUpdateCheck > 24 * 3600 {
             checkForUpdates(manual: false)
         }
@@ -499,23 +550,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                             s.fullScreenMode) { s.fullScreenMode = $0 })
         menu.addItem(.separator())
 
-        menu.addItem(choice(L("Снегопад", "Snowfall"),
-                            [L("Лёгкий снег", "Light snow"), L("Ровный снегопад", "Steady snowfall"), L("Метель", "Blizzard")],
+        let season = Season.resolve(s.season)
+        let winter = season == .winter
+        menu.addItem(seasonsSubmenu())
+        menu.addItem(.separator())
+
+        let fallTitle = [L("Снегопад", "Snowfall"), L("Лепестки", "Petals"), L("Пух одуванчиков", "Dandelion fluff"), L("Листопад", "Falling leaves")][season.rawValue]
+        menu.addItem(choice(fallTitle,
+                            winter ? [L("Лёгкий снег", "Light snow"), L("Ровный снегопад", "Steady snowfall"), L("Метель", "Blizzard")]
+                                   : [L("Немного", "A little"), L("Как обычно", "As usual"), L("Много", "A lot")],
                             s.intensity) { s.intensity = $0 })
-        menu.addItem(choice(L("Снежинки", "Snowflakes"),
+        menu.addItem(choice(winter ? L("Снежинки", "Snowflakes") : L("Размер", "Size"),
                             [L("Мелкие", "Small"), L("Обычные", "Normal"), L("Крупные", "Large")],
                             s.flakeSize) { s.flakeSize = $0 })
         menu.addItem(choice(L("Ветер", "Wind"),
                             [L("← Сильный", "← Strong"), L("← Слабый", "← Light"), L("Штиль", "Calm"),
                              L("Слабый →", "Light →"), L("Сильный →", "Strong →")],
                             s.wind + 2) { s.wind = $0 - 2 })
-        menu.addItem(choice(L("Сугробы", "Drifts"),
-                            [L("Без сугробов", "No drifts"), L("Низкие", "Low"), L("Средние", "Medium"), L("Высокие", "High")],
-                            s.drifts) { s.drifts = $0 })
+        if season != .summer {
+            let pileTitle = [L("Сугробы", "Drifts"), L("Лепестки на окнах", "Petals on windows"), "", L("Листья на окнах", "Leaves on windows")][season.rawValue]
+            menu.addItem(choice(pileTitle,
+                                [winter ? L("Без сугробов", "No drifts") : L("Не копятся", "None"), L("Немного", "A little"),
+                                 L("Средне", "Medium"), L("Много", "A lot")],
+                                s.drifts) { s.drifts = $0 })
+        }
         menu.addItem(choice(L("Курсор", "Cursor"),
-                            [L("Варежка — сметает снег", "Mitten — sweeps snow"),
-                             L("Снежки — катает шары", "Snowballs — rolls balls"),
-                             L("Не трогает снег", "Leaves snow alone")],
+                            [winter ? L("Варежка — сметает снег", "Mitten — sweeps snow") : L("Варежка — разметает", "Mitten — sweeps"),
+                             winter ? L("Снежки — катает шары", "Snowballs — rolls balls") : L("Снежки — только зимой", "Snowballs — winter only"),
+                             L("Ничего не трогает", "Leaves things alone")],
                             s.tool) { s.tool = $0 })
         menu.addItem(.separator())
 
@@ -544,7 +606,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         fm.addItem(MenuAction(L("Салют в новогоднюю полночь", "Fireworks at New Year's midnight"),
                               checked: s.newYearFireworks) { s.newYearFireworks.toggle() })
         fm.addItem(.separator())
-        fm.addItem(MenuAction(L("Ёлка в углу экрана", "Christmas tree in the corner"), checked: s.tree) { s.tree.toggle() })
+        info(fm, L("Зимой:", "In winter:"))
         fm.addItem(choice(L("Гирлянда", "Garland"),
                           [L("Выключена", "Off"), L("Горит", "Steady"), L("Мерцает", "Twinkle"), L("Бегущие огни", "Chasing")],
                           s.garland) { s.garland = $0 })
@@ -552,17 +614,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         fm.addItem(MenuAction(L("Искрящийся снег", "Sparkling snow"), checked: s.sparkle) { s.sparkle.toggle() })
         festive.submenu = fm
         menu.addItem(festive)
-        menu.addItem(MenuAction(L("Оттепель — снег понемногу тает", "Thaw — snow slowly melts"), checked: s.melt) { s.melt.toggle() })
-        menu.addItem(MenuAction(L("Дальний снег за окнами", "Distant snow behind windows"), checked: s.depth) { s.depth.toggle() })
+        menu.addItem(MenuAction(winter ? L("Оттепель — снег понемногу тает", "Thaw — snow slowly melts")
+                                       : L("Ветер понемногу уносит всё с окон", "The wind slowly clears the windows"),
+                                checked: s.melt) { s.melt.toggle() })
+        menu.addItem(MenuAction(winter ? L("Дальний снег за окнами", "Distant snow behind windows") : L("Дальние за окнами", "Distant ones behind windows"),
+                                checked: s.depth) { s.depth.toggle() })
         menu.addItem(.separator())
 
-        menu.addItem(shortcut(MenuAction(L("Убрать весь снег", "Shovel all snow")) { [weak self] in
+        let shovelTitle = [L("Убрать весь снег", "Shovel all snow"), L("Смести все лепестки", "Sweep away all petals"),
+                           L("Убрать всё с окон", "Clear the windows"), L("Смести все листья", "Sweep away all leaves")][season.rawValue]
+        menu.addItem(shortcut(MenuAction(shovelTitle) { [weak self] in
             self?.shovel()
         }, "d"))
         if overlays.contains(where: { $0.sim.hasBalls }) {
-            menu.addItem(MenuAction(L("Убрать снежки и снеговиков", "Remove snowballs and snowmen")) { [weak self] in
-                self?.overlays.forEach { $0.sim.clearBalls() }
-            })
+            menu.addItem(shortcut(MenuAction(L("Убрать снежки и снеговиков", "Remove snowballs and snowmen")) { [weak self] in
+                self?.removeSnowmen()
+            }, "x"))
         }
         menu.addItem(MenuAction(L("Как слепить снеговика…", "How to build a snowman…")) { [weak self] in self?.showHelp() })
         menu.addItem(.separator())
@@ -661,7 +728,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ⌃⌥A — прятать снег над всеми приложениями (снег только на рабочем столе)
         ⌃⌥H — спрятать или вернуть снег над текущим приложением
         ⌃⌥D — убрать весь снег
+        ⌃⌥X — убрать всех снеговиков и снежки
         ⌃⌥F — салют
+
+        Времена года: зимой снег, весной лепестки сакуры и бабочки, летом пух одуванчиков, подсолнухи и светлячки по вечерам, осенью листопад и тыквы. Сезон меняется сам по календарю или выбирается в меню «Время года».
 
         Над полноэкранными приложениями снег прячется сам (меню → «Полноэкранный режим»).
 
@@ -682,7 +752,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ⌃⌥A — hide snow over all apps (snow only on the desktop)
         ⌃⌥H — hide or bring back snow over the current app
         ⌃⌥D — shovel all snow
+        ⌃⌥X — remove all snowmen and snowballs
         ⌃⌥F — fireworks
+
+        Seasons: snow in winter, cherry petals and butterflies in spring, dandelion fluff, sunflowers and evening fireflies in summer, falling leaves and pumpkins in autumn. The season follows the calendar or can be picked under Season.
 
         Snow hides over full-screen apps on its own (menu → Full screen).
 

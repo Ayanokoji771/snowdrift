@@ -85,7 +85,7 @@ enum IconMaker {
 /// `Snowdrift --snapshot out.png` runs the simulation on a made-up desktop and saves a picture.
 /// Used to check the look and the physics without touching the real screen.
 enum Snapshot {
-    static func run(path: String, seconds: Float = 75) -> Bool {
+    static func run(path: String, seconds: Float = 75, season: Int = 0, evening: Bool = false) -> Bool {
         guard let device = MTLCreateSystemDefaultDevice(), let renderer = Renderer(device: device) else {
             print("no Metal")
             return false
@@ -93,7 +93,8 @@ enum Snapshot {
         let W: Float = 1512, H: Float = 982, top: Float = 33
         let sim = Sim(width: W, height: H, topInset: top)
         sim.config = SimConfig(intensity: 2, wind: 1, drifts: 3, tool: 1, garland: 3, depth: true, lowPower: false,
-                               flakeSize: 1, melt: false, tree: true, frost: true, sparkle: true)
+                               flakeSize: 1, melt: false, tree: true, frost: true, sparkle: true, season: season, evening: evening)
+        let winter = season == 0
         var fireworksLaunched = false
 
         let windows = [
@@ -105,12 +106,13 @@ enum Snapshot {
         sim.applyWindows(snap, originX: 0, originY: 0, elapsed: 1, existing: { $0 })
 
         // A snowman made of three balls dropped onto the floor drift.
-        _ = sim.debugAddBall(x: 300, y: 860, radius: 30)
+        if winter { _ = sim.debugAddBall(x: 300, y: 860, radius: 30) }
         var t: Float = 0
         let dt: Float = 1 / 60
         var dropped = 0
         var moved = false
         while t < seconds {
+            if !winter { dropped = 3 }
             if dropped == 0 && t > 8 { _ = sim.debugAddBall(x: 302, y: 700, radius: 22); dropped = 1 }
             if dropped == 1 && t > 10 { _ = sim.debugAddBall(x: 300, y: 600, radius: 15); dropped = 2 }
             if dropped == 2 && t > 12 { _ = sim.debugAddBall(x: 1300, y: 850, radius: 18); dropped = 3 }
@@ -121,14 +123,16 @@ enum Snapshot {
                 snap.version += 1
                 sim.applyWindows(snap, originX: 0, originY: 0, elapsed: 1, existing: { $0 })
             }
-            if !fireworksLaunched && t > seconds - 4.5 {
+            if winter && !fireworksLaunched && t > seconds - 4.5 {
                 fireworksLaunched = true
                 sim.festive.launchFireworks(seconds: 5)
             }
             // Sweep the cursor through the left part of the big window's drift once.
             let sweeping = t > seconds * 0.85 && t < seconds * 0.85 + 0.5
-            let cx: Float = sweeping ? 160 + (t - seconds * 0.85) * 400 : -500
-            sim.step(dt: dt, cursorX: cx, cursorY: 176, cursorInside: sweeping)
+            // In summer evenings the cursor rests on the desktop, so the fireflies gather round it.
+            let resting = !winter && evening
+            let cx: Float = sweeping ? 160 + (t - seconds * 0.85) * 400 : (resting ? 1050 : -500)
+            sim.step(dt: dt, cursorX: cx, cursorY: sweeping ? 176 : 800, cursorInside: sweeping || resting)
             t += dt
         }
         let stats = sim.debugStats
@@ -157,7 +161,8 @@ enum Snapshot {
         c.saveGState()
         c.translateBy(x: 0, y: CGFloat(ph))
         c.scaleBy(x: CGFloat(scale), y: -CGFloat(scale))
-        let bg = CGGradient(colorSpace: space, colorComponents: [0.10, 0.13, 0.30, 1, 0.33, 0.30, 0.55, 1], locations: [0, 1], count: 2)!
+        let bg = evening ? CGGradient(colorSpace: space, colorComponents: [0.02, 0.03, 0.08, 1, 0.08, 0.10, 0.20, 1], locations: [0, 1], count: 2)!
+                         : CGGradient(colorSpace: space, colorComponents: [0.10, 0.13, 0.30, 1, 0.33, 0.30, 0.55, 1], locations: [0, 1], count: 2)!
         c.drawLinearGradient(bg, start: .zero, end: CGPoint(x: 0, y: CGFloat(H)), options: [])
         c.setFillColor(CGColor(gray: 0.1, alpha: 0.35))
         c.fill(CGRect(x: 0, y: 0, width: CGFloat(W), height: CGFloat(top)))
@@ -323,6 +328,33 @@ enum SelfTest {
         sim.applyWindows(WindowSnapshot(version: 5, windows: [yanked], dock: dock), originX: 0, originY: 0, elapsed: 1.0 / 60, existing: { $0 })
         check(sim.debugDebris - debrisBefore > 20, "a fast yank still shakes snow off")
         check(!sim.debugHasNaN(), "no NaN")
+
+        // Seasons.
+        func seasonSim(_ season: Int) -> Sim {
+            let s = Sim(width: 1512, height: 982, topInset: 33)
+            s.config = SimConfig(intensity: 2, wind: 1, drifts: 3, tool: 0, garland: 0, depth: true, lowPower: false,
+                                 flakeSize: 1, melt: false, tree: true, frost: false, sparkle: false, season: season, evening: true)
+            s.applyWindows(WindowSnapshot(version: 1, windows: [win], dock: dock), originX: 0, originY: 0, elapsed: 1, existing: { $0 })
+            for _ in 0..<(60 * 50) { s.step(dt: 1 / 60, cursorX: 760, cursorY: 600, cursorInside: true) }
+            return s
+        }
+        let spring = seasonSim(1), summer = seasonSim(2), autumn = seasonSim(3)
+        check(spring.debugStats.snow > 300 && spring.debugMaxHeight() < 16, "spring petals lie in a thin layer (\(Int(spring.debugStats.snow)), max \(spring.debugMaxHeight()))")
+        check(summer.debugStats.snow == 0 && summer.debugStats.flakes > 10, "summer fluff floats and never piles up (\(summer.debugStats.flakes) in the air)")
+        check(autumn.debugStats.snow > 1500, "autumn leaves heap up on windows, the Dock and the floor (\(Int(autumn.debugStats.snow)))")
+        check(!spring.debugHasNaN() && !summer.debugHasNaN() && !autumn.debugHasNaN(), "no NaN in any season")
+
+        // Winter to spring: the snowmen melt and the drifts blow away.
+        let w = Sim(width: 1512, height: 982, topInset: 33)
+        w.config = SimConfig(intensity: 2, wind: 1, drifts: 3, tool: 1, garland: 0, depth: true, lowPower: false,
+                             flakeSize: 1, melt: false, tree: false, frost: false, sparkle: false)
+        w.applyWindows(WindowSnapshot(version: 1, windows: [win], dock: dock), originX: 0, originY: 0, elapsed: 1, existing: { $0 })
+        _ = w.debugAddBall(x: 300, y: 860, radius: 30)
+        for _ in 0..<(60 * 20) { w.step(dt: 1 / 60, cursorX: -500, cursorY: -500, cursorInside: false) }
+        let hadSnow = w.debugStats.snow
+        w.config.season = 1
+        check(hadSnow > 1000 && w.debugStats.snow == 0 && !w.hasBalls && w.debugDebris > 20,
+              "a new season blows the old one away (snow \(Int(hadSnow)) → \(Int(w.debugStats.snow)), puffs \(w.debugDebris))")
         return ok
     }
 }

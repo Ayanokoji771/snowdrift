@@ -21,23 +21,42 @@ struct SimConfig: Equatable {
     var tree = true
     var frost = false
     var sparkle = true
+    /// Season.rawValue: 0 winter, 1 spring, 2 summer, 3 autumn.
+    var season = 0
+    /// Evening or night (fireflies).
+    var evening = false
 }
 
 struct Flake {
     var x: Float, y: Float, vx: Float
     var size: Float, alpha: Float
     var layer: UInt8          // 0 far, 1 middle, 2 near
-    var kind: UInt8           // 0 soft dot, 1...3 crystal
+    var kind: UInt8           // 0 soft dot, 1...3 crystal, 4 petal, 5 leaf, 6 maple leaf, 7 dandelion fluff
     var phase: Float, swayAmp: Float, swayFreq: Float
     var rot: Float, spin: Float
     var fall: Float
     var vol: Float
+    var tint: UInt8 = 0
+    /// Tumbling: the item turns edge-on and back.
+    var flip: Float = 0, flipSpeed: Float = 0
 }
 
 struct Debris {
     var x: Float, y: Float, vx: Float, vy: Float
     var size: Float, vol: Float
     var canLand: Bool
+    /// 0 snow, 1 petal, 2 leaf.
+    var kind: UInt8 = 0
+    var tint: UInt8 = 0
+    var rot: Float = 0, spin: Float = 0
+}
+
+/// Colours of the seasons.
+enum Palette {
+    static let petals: [(Float, Float, Float)] = [(1.0, 0.80, 0.87), (1.0, 0.70, 0.81), (0.99, 0.89, 0.93), (0.98, 0.62, 0.76)]
+    static let leaves: [(Float, Float, Float)] = [
+        (0.96, 0.56, 0.12), (0.88, 0.30, 0.10), (0.98, 0.76, 0.18), (0.72, 0.20, 0.08), (0.84, 0.46, 0.14), (0.62, 0.40, 0.12),
+    ]
 }
 
 /// Something snow can lie on: the top edge of a window, the Dock, or the bottom of the screen.
@@ -122,12 +141,23 @@ final class Sim {
 
     var config = SimConfig() {
         didSet {
+            if config.season != oldValue.season {
+                // A new season: what lies around blows away, snowmen melt, the new season starts falling.
+                clearSnow(puff: true, kind: Sim.debrisKind(oldValue.season))
+                clearBalls()
+                needsWindowRefresh = true
+            }
             if config.drifts != oldValue.drifts {
                 if config.drifts == 0 { clearSnow(puff: false) }
                 needsWindowRefresh = true
             }
         }
     }
+
+    var season: Season { Season(rawValue: config.season) ?? .winter }
+
+    /// What the mitten and the wind blow around: snow, petals or leaves.
+    private static func debrisKind(_ season: Int) -> UInt8 { season == 1 ? 1 : (season == 3 ? 2 : 0) }
     var needsWindowRefresh = true
 
     private var rng = Rng()
@@ -178,12 +208,14 @@ final class Sim {
 
     // MARK: - Settings-derived numbers
 
-    private var driftCap: Float { [0, 13, 22, 36][config.drifts] }
+    /// Snow piles high; petals lie in a thin layer, leaves in heaps; summer fluff doesn't settle.
+    private var driftCap: Float { [0, 13, 22, 36][config.drifts] * [1, 0.4, 0, 0.62][config.season] }
 
     private var targetCount: Int {
         let base: Float = [150, 430, 1150][config.intensity]
         let area = (W * H) / (1512 * 982)
-        return Int(base * area * (config.lowPower ? 0.6 : 1))
+        let perSeason: Float = [1, 0.34, 0.13, 0.15][config.season]
+        return max(4, Int(base * area * perSeason * (config.lowPower ? 0.6 : 1)))
     }
 
     private var speedFactor: Float { [0.85, 1.0, 1.45][config.intensity] }
@@ -428,7 +460,7 @@ final class Sim {
     }
 
     /// The shovel: all snow puffs up and is gone.
-    func clearSnow(puff: Bool = true) {
+    func clearSnow(puff: Bool = true, kind: UInt8? = nil) {
         for s in surfaces.values {
             if puff && s.onScreen {
                 var acc: Float = 0
@@ -436,7 +468,7 @@ final class Sim {
                     acc += s.h[i] * colW
                     if acc >= 14 {
                         emit(x: s.x0 + Float(i) * colW, y: s.y - s.h[i] * rng.unit(), vx: rng.range(-90, 90),
-                             vy: rng.range(-190, -40), vol: 8, canLand: false)
+                             vy: rng.range(-190, -40), vol: 8, canLand: false, kind: kind)
                         acc = 0
                     }
                 }
@@ -521,7 +553,8 @@ final class Sim {
         stepDebris(dt: dt)
         relax()
         stepBalls(dt: dt, cursorSpeed: cursorSpeed)
-        festive.step(dt: dt, showTree: config.tree, occluders: occluders)
+        festive.step(dt: dt, season: season, showDecor: config.tree, evening: config.evening,
+                     cursorX: cursorInside ? cx : nil, cursorY: cy, occluders: occluders)
         if config.melt { melt(dt: dt) }
 
         // What is under the cursor.
@@ -537,22 +570,53 @@ final class Sim {
     private func makeFlake(anywhere: Bool) -> Flake {
         let pick = rng.unit()
         let layer: UInt8 = pick < 0.30 ? 0 : (pick < 0.76 ? 1 : 2)
-        var size: Float, alpha: Float, fall: Float, vol: Float
-        var kind: UInt8 = 0
-        switch layer {
-        case 0:
-            size = rng.range(0.7, 1.25); alpha = rng.range(0.35, 0.6); fall = rng.range(28, 48); vol = 0
-        case 1:
-            size = rng.range(1.3, 2.3); alpha = rng.range(0.7, 0.95); fall = rng.range(50, 85); vol = 12
-        default:
-            size = rng.range(2.3, 4.4); alpha = rng.range(0.85, 1); fall = rng.range(85, 135); vol = 14
-            if size > 3.0 { kind = UInt8(1 + rng.int(3)) }
+        let scale: Float = [0.72, 1.0, 1.4][config.flakeSize]
+        var f = Flake(x: rng.range(-40, W + 40), y: anywhere ? rng.range(-20, H) : -rng.range(6, 60), vx: wind * 0.5,
+                      size: 1, alpha: 1, layer: layer, kind: 0,
+                      phase: rng.range(0, 6.28), swayAmp: rng.range(6, 22), swayFreq: rng.range(0.6, 1.8),
+                      rot: rng.range(0, 6.28), spin: rng.range(-1.2, 1.2), fall: 60, vol: 0)
+        // Per layer: (size range, alpha range, fall range, volume) — far, middle, near.
+        func pickLayer(_ sizes: [(Float, Float)], _ alphas: [(Float, Float)], _ falls: [(Float, Float)], _ vols: [Float]) {
+            let l = Int(layer)
+            f.size = rng.range(sizes[l].0, sizes[l].1) * scale
+            f.alpha = rng.range(alphas[l].0, alphas[l].1)
+            f.fall = rng.range(falls[l].0, falls[l].1)
+            f.vol = vols[l]
         }
-        size *= [0.72, 1.0, 1.4][config.flakeSize]
-        return Flake(x: rng.range(-40, W + 40), y: anywhere ? rng.range(-20, H) : -rng.range(6, 60), vx: wind * 0.5,
-                     size: size, alpha: alpha, layer: layer, kind: kind,
-                     phase: rng.range(0, 6.28), swayAmp: rng.range(6, 22), swayFreq: rng.range(0.6, 1.8),
-                     rot: rng.range(0, 6.28), spin: rng.range(-1.2, 1.2), fall: fall, vol: vol)
+        switch season {
+        case .winter:
+            pickLayer([(0.7, 1.25), (1.3, 2.3), (2.3, 4.4)], [(0.35, 0.6), (0.7, 0.95), (0.85, 1)], [(28, 48), (50, 85), (85, 135)], [0, 12, 14])
+            if layer == 2 && f.size > 3.0 * scale { f.kind = UInt8(1 + rng.int(3)) }
+        case .spring:
+            pickLayer([(2.0, 2.8), (3.2, 4.6), (4.8, 6.6)], [(0.45, 0.65), (0.85, 0.95), (0.95, 1)], [(16, 24), (24, 38), (34, 50)], [0, 5, 6])
+            f.kind = 4
+            f.tint = UInt8(rng.int(Palette.petals.count))
+            f.swayAmp = rng.range(14, 38)
+            f.swayFreq = rng.range(0.5, 1.3)
+            f.spin = rng.range(-2.4, 2.4)
+            f.flipSpeed = rng.range(1.5, 4)
+        case .summer:
+            pickLayer([(3.4, 4.6), (5.4, 7.2), (8.0, 10.5)], [(0.45, 0.6), (0.75, 0.9), (0.9, 1)], [(8, 14), (12, 20), (16, 26)], [0, 0, 0])
+            f.kind = 7
+            f.swayAmp = rng.range(18, 44)
+            f.swayFreq = rng.range(0.25, 0.7)
+            f.spin = rng.range(-0.25, 0.25)
+            f.rot = rng.range(-0.3, 0.3)
+        case .autumn:
+            pickLayer([(3.6, 5.0), (5.6, 8.0), (8.6, 11.5)], [(0.5, 0.7), (0.9, 1), (1, 1)], [(22, 32), (32, 50), (46, 68)], [0, 22, 26])
+            f.kind = rng.unit() < 0.5 ? 5 : 6
+            f.tint = UInt8(rng.int(Palette.leaves.count))
+            f.swayAmp = rng.range(30, 70)
+            f.swayFreq = rng.range(0.6, 1.25)
+            f.spin = rng.range(-0.6, 0.6)
+            f.flipSpeed = rng.range(0.8, 2.6)
+        }
+        if !anywhere && season == .summer && rng.unit() < 0.4 {
+            // Fluff also drifts in from the sides.
+            f.x = wind >= 0 ? -30 : W + 30
+            f.y = rng.range(H * 0.1, H * 0.8)
+        }
+        return f
     }
 
     private func stepFlakes(dt: Float, cursorSpeed: Float) {
@@ -582,15 +646,29 @@ final class Sim {
                     f.y += cursorVY * 0.35 * w * dt
                 }
             }
-            let vy = f.fall * sf * (1 + 0.15 * sin(time * 0.9 + f.phase * 2))
+            var vy: Float
+            switch f.kind {
+            case 5, 6:
+                // A leaf swings like a pendulum: it tilts with the swing and slows at either end.
+                let swing = sin(time * f.swayFreq + f.phase)
+                vy = f.fall * sf * (0.45 + 0.55 * abs(cos(time * f.swayFreq + f.phase)))
+                f.rot = f.spin * time * 0.3 + swing * 0.7 + f.phase
+            case 7:
+                // Fluff rides the air: now and then it even rises.
+                vy = f.fall * sf * (0.45 + 0.9 * sin(time * 0.23 + f.phase))
+                f.rot += f.spin * dt
+            default:
+                vy = f.fall * sf * (1 + 0.15 * sin(time * 0.9 + f.phase * 2))
+                f.rot += f.spin * dt
+            }
+            f.flip += f.flipSpeed * dt
             let prevY = f.y
             f.x += f.vx * dt
             f.y += vy * dt
-            f.rot += f.spin * dt
             if f.x < -40 { f.x += W + 80 } else if f.x > W + 40 { f.x -= W + 80 }
 
-            var gone = f.y > H + 12
-            if !gone && f.layer > 0 && tryLand(x: f.x, y: f.y, prevY: prevY, vol: f.vol * gain, nearOnly: f.layer == 2) {
+            var gone = f.y > H + 12 || f.y < -80
+            if !gone && f.layer > 0 && f.vol > 0 && tryLand(x: f.x, y: f.y, prevY: prevY, vol: f.vol * gain, nearOnly: f.layer == 2) {
                 gone = true
                 landed += 1
             }
@@ -644,20 +722,26 @@ final class Sim {
         }
     }
 
-    private func emit(x: Float, y: Float, vx: Float, vy: Float, vol: Float, canLand: Bool = true) {
+    private func emit(x: Float, y: Float, vx: Float, vy: Float, vol: Float, canLand: Bool = true, kind: UInt8? = nil) {
         guard debris.count < 5000 else { return }
-        debris.append(Debris(x: x, y: y, vx: vx, vy: vy, size: min(3.2, 0.8 + vol.squareRoot() * 0.32), vol: vol, canLand: canLand))
+        let k = kind ?? Sim.debrisKind(config.season)
+        let tints = k == 1 ? Palette.petals.count : Palette.leaves.count
+        debris.append(Debris(x: x, y: y, vx: vx, vy: vy, size: min(3.2, 0.8 + vol.squareRoot() * 0.32), vol: vol, canLand: canLand,
+                             kind: k, tint: UInt8(rng.int(tints)), rot: rng.range(0, 6.28), spin: rng.range(-6, 6)))
     }
 
     private func stepDebris(dt: Float) {
-        let drag = max(0, 1 - dt * 1.1)
         var i = 0
         while i < debris.count {
             var d = debris[i]
-            d.vy += 620 * dt
+            // Snow drops like snow; petals and leaves flutter down.
+            let gravity: Float = d.kind == 0 ? 620 : (d.kind == 1 ? 140 : 230)
+            let drag = max(0, 1 - dt * (d.kind == 0 ? 1.1 : 2.2))
+            d.vy += gravity * dt
             d.vx += (wind * 0.4 - d.vx) * min(1, dt * 0.8)
             d.vx *= drag
             d.vy *= drag
+            d.rot += d.spin * dt
             let prevY = d.y
             d.x += d.vx * dt
             d.y += d.vy * dt
@@ -751,7 +835,7 @@ final class Sim {
         }
         guard removed > 0 else { return }
 
-        if config.tool == 1 {
+        if config.tool == 1 && season == .winter {
             // Snowball mode: the swept snow is packed into a ball.
             let packed = removed * 0.55
             if let b = activeBall, b.above == nil, b.below == nil, !b.dormant,
@@ -1029,36 +1113,144 @@ final class Sim {
                 for o in occluders where o.contains(f.x, f.y) { behind = true; break }
                 if behind { continue }
             }
-            let hw = f.size * 1.5
-            batch.sprite(.dot, x: f.x, y: f.y, hw: hw, hh: hw, a: f.alpha)
+            drawFlake(f, batch)
         }
 
         festive.drawFireworks(batch)
-        drawGarland(batch)
+        let winter = season == .winter
+        if winter { drawGarland(batch) }
         drawBalls(batch)
         drawDrifts(batch)
-        festive.drawTree(batch)
+        festive.drawDecor(batch)
 
         for d in debris {
-            let hw = d.size * 1.5
-            batch.sprite(.dot, x: d.x, y: d.y, hw: hw, hh: hw, a: 0.95)
-        }
-        for f in flakes where f.layer != 0 {
-            if f.kind == 0 {
-                let hw = f.size * 1.5
-                batch.sprite(.dot, x: f.x, y: f.y, hw: hw, hh: hw, a: f.alpha)
-            } else {
-                let hw = f.size * 1.9
-                let sprite: Sprite = f.kind == 1 ? .crystal1 : (f.kind == 2 ? .crystal2 : .crystal3)
-                batch.sprite(sprite, x: f.x, y: f.y, hw: hw, hh: hw, rot: f.rot, a: f.alpha)
+            switch d.kind {
+            case 1:
+                let c = Palette.petals[Int(d.tint) % Palette.petals.count]
+                let hw = 2.6 + d.size * 0.6
+                batch.sprite(.petal, x: d.x, y: d.y, hw: hw * max(0.3, abs(cos(d.rot * 0.7))), hh: hw * 1.15, rot: d.rot,
+                             r: c.0, g: c.1, b: c.2, a: 0.95)
+            case 2:
+                let c = Palette.leaves[Int(d.tint) % Palette.leaves.count]
+                let hw = 4 + d.size * 1.2
+                batch.sprite(d.tint % 2 == 0 ? .maple : .leaf, x: d.x, y: d.y, hw: hw * max(0.3, abs(cos(d.rot * 0.6))), hh: hw,
+                             rot: d.rot, r: c.0, g: c.1, b: c.2, a: 1)
+            default:
+                let hw = d.size * 1.5
+                batch.sprite(.dot, x: d.x, y: d.y, hw: hw, hh: hw, a: 0.95)
             }
         }
-        if config.frost { festive.drawFrost(batch) }
+        for f in flakes where f.layer != 0 { drawFlake(f, batch) }
+        festive.drawCreatures(batch)
+        if config.frost && winter { festive.drawFrost(batch) }
+    }
+
+    private func drawFlake(_ f: Flake, _ batch: Batch) {
+        switch f.kind {
+        case 0:
+            let hw = f.size * 1.5
+            batch.sprite(.dot, x: f.x, y: f.y, hw: hw, hh: hw, a: f.alpha)
+        case 1, 2, 3:
+            let hw = f.size * 1.9
+            let sprite: Sprite = f.kind == 1 ? .crystal1 : (f.kind == 2 ? .crystal2 : .crystal3)
+            batch.sprite(sprite, x: f.x, y: f.y, hw: hw, hh: hw, rot: f.rot, a: f.alpha)
+        case 4:
+            let c = Palette.petals[Int(f.tint) % Palette.petals.count]
+            batch.sprite(.petal, x: f.x, y: f.y, hw: f.size * max(0.22, abs(cos(f.flip))), hh: f.size * 1.15, rot: f.rot,
+                         r: c.0, g: c.1, b: c.2, a: f.alpha)
+        case 5, 6:
+            let c = Palette.leaves[Int(f.tint) % Palette.leaves.count]
+            // Far leaves are paler, as if seen through the air.
+            let mist: Float = f.layer == 0 ? 0.35 : 0
+            batch.sprite(f.kind == 6 ? .maple : .leaf, x: f.x, y: f.y, hw: f.size * max(0.3, abs(cos(f.flip))), hh: f.size,
+                         rot: f.rot, r: c.0 + (0.9 - c.0) * mist, g: c.1 + (0.85 - c.1) * mist, b: c.2 + (0.8 - c.2) * mist, a: f.alpha)
+        default:
+            batch.sprite(.fluff, x: f.x, y: f.y, hw: f.size, hh: f.size, rot: f.rot, a: f.alpha)
+        }
     }
 
     private static let smooth: [Float] = [1, 3, 6, 8, 6, 3, 1]
 
     private func drawDrifts(_ batch: Batch) {
+        switch season {
+        case .winter: drawSnowDrifts(batch)
+        case .spring, .autumn: drawLitter(batch)
+        case .summer: break
+        }
+    }
+
+    /// Smoothed, tapered height of a pile at column i (the same shape the snow drifts use).
+    @inline(__always)
+    private func pileHeight(_ s: Surface, _ i: Int) -> Float {
+        let n = s.h.count
+        var acc: Float = 0, wsum: Float = 0
+        for k in -3...3 {
+            let j = i + k
+            if j < 0 || j >= n || !s.vis[j] { continue }
+            let w = Sim.smooth[k + 3]
+            acc += s.h[j] * w
+            wsum += w
+        }
+        let edge = min(i, n - 1 - i)
+        let taper: Float = s.kind == .floor ? 1 : min(1, 0.45 + Float(edge) * 0.11)
+        return (wsum > 0 ? acc / wsum : s.h[i]) * taper
+    }
+
+    /// Petals and leaves: a soft coloured bed with the pieces themselves lying on top.
+    private func drawLitter(_ batch: Batch) {
+        let autumn = season == .autumn
+        for s in active {
+            let n = s.h.count
+            if n < 3 { continue }
+            let base = s.kind == .floor ? s.y : s.y + 1
+            var prevH: Float = 0
+            var prevOK = false
+            for i in 0..<n {
+                if !s.vis[i] { prevOK = false; continue }
+                let hh = pileHeight(s, i)
+                if prevOK && (hh > 0.25 || prevH > 0.25) {
+                    let xb = s.x0 + (Float(i) + 0.5) * colW, xa = xb - colW
+                    let aa = min(1, prevH / 1.5) * 0.92, ab = min(1, hh / 1.5) * 0.92
+                    // Autumn: a heap of brown and orange; spring: a pale pink bed.
+                    let top: (Float, Float, Float) = autumn ? (0.78, 0.42, 0.14) : (1.0, 0.86, 0.90)
+                    let low: (Float, Float, Float) = autumn ? (0.42, 0.21, 0.08) : (0.93, 0.70, 0.78)
+                    batch.quad(batch.flat(xa, s.y - prevH, top.0, top.1, top.2, aa), batch.flat(xb, s.y - hh, top.0, top.1, top.2, ab),
+                               batch.flat(xa, base, low.0, low.1, low.2, aa), batch.flat(xb, base, low.0, low.1, low.2, ab))
+                }
+                prevH = hh
+                prevOK = true
+            }
+            // The pieces on top: a few per column, placed by a hash so they stay put from frame to frame.
+            let stride = autumn ? 3 : 2
+            var i = 1
+            while i < n - 1 {
+                defer { i += stride }
+                if !s.vis[i] { continue }
+                let hh = pileHeight(s, i)
+                if hh < 0.9 { continue }
+                let layers = autumn ? min(4, Int(hh / 3.2) + 1) : 1
+                for k in 0..<layers {
+                    let hsh = UInt32(truncatingIfNeeded: (i &* 7919) ^ (s.id &* 104_729) ^ (k &* 1_299_709))
+                    let jitter = Float(hsh % 100) / 100 - 0.5
+                    let x = s.x0 + (Float(i) + 0.5 + jitter * 1.6) * colW
+                    let y = s.y - hh + 1.2 + Float(k) * 3.4
+                    let rot = Float(hsh % 628) / 100
+                    if autumn {
+                        let c = Palette.leaves[Int(hsh >> 8) % Palette.leaves.count]
+                        let shade: Float = 1 - Float(k) * 0.14
+                        let size: Float = 4.6 + Float((hsh >> 4) % 30) / 10
+                        batch.sprite((hsh >> 12) % 2 == 0 ? .maple : .leaf, x: x, y: y, hw: size * 0.9, hh: size, rot: rot,
+                                     r: c.0 * shade, g: c.1 * shade, b: c.2 * shade, a: 1)
+                    } else {
+                        let c = Palette.petals[Int(hsh >> 8) % Palette.petals.count]
+                        batch.sprite(.petal, x: x, y: y, hw: 2.4, hh: 2.8, rot: rot, r: c.0, g: c.1, b: c.2, a: 0.95)
+                    }
+                }
+            }
+        }
+    }
+
+    private func drawSnowDrifts(_ batch: Batch) {
         for s in active {
             let n = s.h.count
             if n < 3 { continue }

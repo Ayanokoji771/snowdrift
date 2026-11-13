@@ -1,6 +1,7 @@
 import Foundation
 
-/// New Year extras for one screen: fireworks, a Christmas tree and frosty corners.
+/// Extras for one screen: fireworks, a corner decoration for each season (Christmas tree, cherry tree,
+/// sunflowers, pumpkins), frosty corners, and the small living things: butterflies and fireflies.
 final class Festive {
     private let W: Float
     private let H: Float
@@ -17,17 +18,50 @@ final class Festive {
         layoutTree()
     }
 
-    func step(dt: Float, showTree: Bool, occluders: [FRect]) {
+    private(set) var season: Season = .winter
+    private var evening = false
+    private var occluders: [FRect] = []
+
+    func step(dt: Float, season: Season, showDecor: Bool, evening: Bool, cursorX: Float?, cursorY: Float, occluders: [FRect]) {
         time += dt
+        if season != self.season {
+            // The old decoration goes at once; the new one fades in.
+            self.season = season
+            treeAlpha = 0
+            fallingPetals.removeAll()
+            butterflies.removeAll()
+        }
+        self.evening = evening
+        self.occluders = occluders
         stepFireworks(dt: dt)
         var free = true
         for o in occluders where o.x0 < treeBox.x1 && o.x1 > treeBox.x0 && o.y0 < treeBox.y1 && o.y1 > treeBox.y0 {
             free = false
             break
         }
-        let target: Float = showTree && free ? 1 : 0
+        let target: Float = showDecor && free ? 1 : 0
         treeAlpha += (target - treeAlpha) * min(1, dt * 5)
         if abs(target - treeAlpha) < 0.003 { treeAlpha = target }
+        stepFallingPetals(dt: dt)
+        stepButterflies(dt: dt, cursorX: cursorX, cursorY: cursorY)
+        stepFireflies(dt: dt, cursorX: cursorX, cursorY: cursorY)
+    }
+
+    /// The decoration in the corner for this season.
+    func drawDecor(_ batch: Batch) {
+        switch season {
+        case .winter: drawTree(batch)
+        case .spring: drawSakura(batch)
+        case .summer: drawSunflowers(batch)
+        case .autumn: drawPumpkins(batch)
+        }
+    }
+
+    /// Butterflies, fireflies and petals blowing off the cherry tree (in front of everything else).
+    func drawCreatures(_ batch: Batch) {
+        drawFallingPetals(batch)
+        drawButterflies(batch)
+        drawFireflies(batch)
     }
 
     // MARK: - Fireworks
@@ -340,5 +374,314 @@ final class Festive {
         batch.sprite(.frost, x: W - hw, y: hw, hw: hw, hh: hw, r: 0.92, g: 0.96, b: 1, a: a, flipX: true)
         batch.sprite(.frost, x: hw, y: H - hw, hw: hw, hh: hw, r: 0.92, g: 0.96, b: 1, a: a, flipY: true)
         batch.sprite(.frost, x: W - hw, y: H - hw, hw: hw, hh: hw, r: 0.92, g: 0.96, b: 1, a: a, flipX: true, flipY: true)
+    }
+
+    // MARK: - Spring: a cherry tree in blossom
+
+    private struct Twig { var x0: Float, y0: Float, x1: Float, y1: Float, width: Float }
+    private struct Blossom { var x: Float, y: Float, r: Float, tint: Int, rot: Float }
+
+    private lazy var sakura: (twigs: [Twig], clouds: [Blossom], flowers: [Blossom]) = layoutSakura()
+
+    private func layoutSakura() -> (twigs: [Twig], clouds: [Blossom], flowers: [Blossom]) {
+        var rng = Rng(seed: 31415)
+        let h = treeH, cx = treeX
+        var twigs: [Twig] = []
+        var ends: [(Float, Float)] = []
+        // A trunk that leans a little, then branches that split twice.
+        let top = (cx - h * 0.04, H - h * 0.52)
+        twigs.append(Twig(x0: cx, y0: H, x1: top.0, y1: top.1, width: h * 0.075))
+        func branch(_ x: Float, _ y: Float, _ angle: Float, _ length: Float, _ width: Float, _ depth: Int) {
+            let x2 = x + sin(angle) * length, y2 = y - cos(angle) * length
+            twigs.append(Twig(x0: x, y0: y, x1: x2, y1: y2, width: width))
+            if depth == 0 { ends.append((x2, y2)); return }
+            for side in [-1.0, 1.0] as [Float] {
+                branch(x2, y2, angle + side * rng.range(0.35, 0.7), length * rng.range(0.6, 0.75), width * 0.62, depth - 1)
+            }
+        }
+        for a in [-0.75, -0.1, 0.6] as [Float] {
+            branch(top.0, top.1, a + rng.range(-0.1, 0.1), h * rng.range(0.2, 0.26), h * 0.045, 2)
+        }
+        var clouds: [Blossom] = []
+        var flowers: [Blossom] = []
+        for (x, y) in ends {
+            for _ in 0..<4 {
+                clouds.append(Blossom(x: x + rng.range(-h * 0.08, h * 0.08), y: y + rng.range(-h * 0.06, h * 0.05),
+                                      r: h * rng.range(0.07, 0.11), tint: rng.int(Palette.petals.count), rot: 0))
+            }
+            for _ in 0..<5 {
+                flowers.append(Blossom(x: x + rng.range(-h * 0.11, h * 0.11), y: y + rng.range(-h * 0.08, h * 0.07),
+                                       r: h * rng.range(0.022, 0.03), tint: rng.int(Palette.petals.count), rot: rng.range(0, 1.26)))
+            }
+        }
+        return (twigs, clouds, flowers)
+    }
+
+    private func drawSakura(_ batch: Batch) {
+        let al = treeAlpha
+        guard al > 0.003 else { return }
+        let t = sakura
+        // A carpet of fallen petals under the tree.
+        for k in 0..<22 {
+            let u = Float(k) / 21 * 2 - 1
+            let c = Palette.petals[k % Palette.petals.count]
+            batch.sprite(.dot, x: treeX + u * treeW * 0.8, y: H - 2.5, hw: 9, hh: 3.5, r: c.0, g: c.1, b: c.2, a: al * 0.8)
+        }
+        for tw in t.twigs {
+            batch.line(tw.x0, tw.y0, tw.x1, tw.y1, width: tw.width, r: 0.30, g: 0.18, b: 0.14, a: al)
+            batch.line(tw.x0 - tw.width * 0.18, tw.y0, tw.x1 - tw.width * 0.18, tw.y1, width: tw.width * 0.35, r: 0.44, g: 0.29, b: 0.22, a: al)
+        }
+        for b in t.clouds {
+            let c = Palette.petals[b.tint]
+            batch.sprite(.dot, x: b.x, y: b.y, hw: b.r, hh: b.r * 0.9, r: c.0, g: c.1, b: c.2, a: al * 0.85)
+        }
+        for b in t.flowers {
+            let c = Palette.petals[b.tint]
+            for k in 0..<5 {
+                let a = b.rot + Float(k) / 5 * 6.283
+                batch.sprite(.petal, x: b.x + sin(a) * b.r * 0.7, y: b.y - cos(a) * b.r * 0.7, hw: b.r * 0.62, hh: b.r * 0.78,
+                             rot: a, r: min(1, c.0 + 0.05), g: min(1, c.1 + 0.08), b: min(1, c.2 + 0.06), a: al)
+            }
+            batch.sprite(.dot, x: b.x, y: b.y, hw: b.r * 0.32, hh: b.r * 0.32, r: 0.95, g: 0.45, b: 0.55, a: al)
+        }
+    }
+
+    // Petals blowing off the cherry tree.
+    private struct FallingPetal { var x: Float, y: Float, vx: Float, vy: Float, rot: Float, spin: Float, flip: Float, tint: Int, life: Float }
+    private var fallingPetals: [FallingPetal] = []
+    private var petalClock: Float = 0
+
+    private func stepFallingPetals(dt: Float) {
+        if season == .spring && treeAlpha > 0.5 {
+            petalClock += dt
+            let clouds = sakura.clouds
+            while petalClock > 0.35 && !clouds.isEmpty {
+                petalClock -= 0.35
+                let b = clouds[rng.int(clouds.count)]
+                fallingPetals.append(FallingPetal(x: b.x + rng.range(-b.r, b.r), y: b.y + rng.range(-b.r, b.r) * 0.5,
+                                                  vx: rng.range(-30, 10), vy: rng.range(8, 20), rot: rng.range(0, 6.28),
+                                                  spin: rng.range(-3, 3), flip: rng.range(0, 6.28), tint: rng.int(Palette.petals.count), life: 0))
+            }
+        }
+        var i = 0
+        while i < fallingPetals.count {
+            var p = fallingPetals[i]
+            p.life += dt
+            p.vx += (sin(time * 1.3 + p.flip) * 25 - p.vx) * min(1, dt * 1.5)
+            p.x += p.vx * dt
+            p.y += (p.vy + 10 * sin(time * 2 + p.flip)) * dt
+            p.rot += p.spin * dt
+            p.flip += 3 * dt
+            if p.y > H + 10 || p.life > 30 {
+                fallingPetals.swapAt(i, fallingPetals.count - 1)
+                fallingPetals.removeLast()
+                continue
+            }
+            fallingPetals[i] = p
+            i += 1
+        }
+    }
+
+    private func drawFallingPetals(_ batch: Batch) {
+        for p in fallingPetals {
+            let c = Palette.petals[p.tint]
+            batch.sprite(.petal, x: p.x, y: p.y, hw: 4 * max(0.22, abs(cos(p.flip))), hh: 4.6, rot: p.rot, r: c.0, g: c.1, b: c.2, a: 0.95)
+        }
+    }
+
+    // MARK: - Summer: sunflowers
+
+    private func drawSunflowers(_ batch: Batch) {
+        let al = treeAlpha
+        guard al > 0.003 else { return }
+        let h = treeH, w = treeW
+        // Grass.
+        for k in 0..<40 {
+            let u = Float(k) / 39 * 2 - 1
+            let x = treeX + u * w * 0.85
+            let len = 8 + Float((k * 37) % 11)
+            let lean = sin(time * 1.1 + Float(k)) * 1.5 + Float(k % 3 - 1) * 2
+            batch.line(x, H, x + lean, H - len, width: 1.6, r: 0.24, g: 0.56, b: 0.20, a: al)
+        }
+        let spots: [(Float, Float)] = [(-0.38, 0.78), (0.02, 1.0), (0.36, 0.62)]
+        for (i, (dx, tall)) in spots.enumerated() {
+            let sway = sin(time * 0.8 + Float(i) * 1.7) * 0.05
+            let baseX = treeX + dx * w
+            let len = h * tall
+            let hx = baseX + sin(sway) * len, hy = H - cos(sway) * len
+            batch.line(baseX, H, hx, hy, width: 4, r: 0.22, g: 0.50, b: 0.18, a: al)
+            for (k, at) in [0.35, 0.62].enumerated() {
+                let side: Float = (k + i) % 2 == 0 ? 1 : -1
+                let lx = baseX + (hx - baseX) * Float(at), ly = H + (hy - H) * Float(at)
+                batch.sprite(.leaf, x: lx + side * 11, y: ly - 4, hw: 9, hh: 13, rot: side * 1.0 + sway,
+                             r: 0.30, g: 0.62, b: 0.22, a: al)
+            }
+            let r = h * (0.085 + 0.02 * tall)
+            for ring in 0..<2 {
+                let petals = 16
+                for k in 0..<petals {
+                    let a = Float(k) / Float(petals) * 6.283 + Float(ring) * 0.2 + sway
+                    let rr = r * (ring == 0 ? 1.05 : 0.9)
+                    let shade: Float = ring == 0 ? 0.88 : 1
+                    batch.sprite(.petal, x: hx + sin(a) * rr, y: hy - cos(a) * rr, hw: r * 0.26, hh: r * 0.55, rot: a,
+                                 r: 1.0 * shade, g: 0.78 * shade, b: 0.14 * shade, a: al)
+                }
+            }
+            batch.sprite(.ballBase, x: hx, y: hy, hw: r * 0.62, hh: r * 0.62, r: 0.42, g: 0.25, b: 0.09, a: al)
+            batch.sprite(.ballTex, x: hx, y: hy, hw: r * 0.58, hh: r * 0.58, rot: Float(i), r: 0.2, g: 0.1, b: 0.03, a: al * 0.9)
+        }
+    }
+
+    // MARK: - Autumn: pumpkins with a candle inside
+
+    private func drawPumpkin(_ batch: Batch, x: Float, r: Float, face: Bool, al: Float) {
+        let y = H - r * 0.82
+        let orange: (Float, Float, Float) = (1.0, 0.52, 0.10)
+        // Ribs, the outer ones darker and behind.
+        for (dx, wk, shade) in [(-0.55, 0.62, 0.78), (0.55, 0.62, 0.78), (-0.28, 0.7, 0.9), (0.28, 0.7, 0.9), (0, 0.66, 1.0)] as [(Float, Float, Float)] {
+            batch.sprite(.ballBase, x: x + dx * r, y: y, hw: r * wk, hh: r * 0.86,
+                         r: orange.0 * shade, g: orange.1 * shade, b: orange.2 * shade, a: al)
+        }
+        // Stem and a curl of vine.
+        batch.rect(x: x - r * 0.08, y: y - r * 1.06, w: r * 0.16, h: r * 0.26, r: 0.36, g: 0.30, b: 0.12, a: al)
+        batch.line(x + r * 0.05, y - r * 0.95, x + r * 0.35, y - r * 1.12, width: 1.8, r: 0.30, g: 0.45, b: 0.16, a: al)
+        guard face else { return }
+        let flicker = 0.78 + 0.22 * sin(time * 9.0) * sin(time * 5.3 + 1)
+        let lit: (Float, Float, Float) = (1.0, 0.82 * flicker + 0.1, 0.28 * flicker)
+        func tri(_ ax: Float, _ ay: Float, _ bx: Float, _ by: Float, _ cx: Float, _ cy: Float) {
+            batch.tri(batch.flat(x + ax * r, y + ay * r, lit.0, lit.1, lit.2, al),
+                      batch.flat(x + bx * r, y + by * r, lit.0, lit.1, lit.2, al),
+                      batch.flat(x + cx * r, y + cy * r, lit.0, lit.1, lit.2, al))
+        }
+        tri(-0.42, -0.08, -0.16, -0.08, -0.29, -0.34)    // eyes
+        tri(0.16, -0.08, 0.42, -0.08, 0.29, -0.34)
+        tri(-0.07, 0.08, 0.07, 0.08, 0, -0.06)           // nose
+        // A jagged grin.
+        let mouth: [(Float, Float)] = [(-0.5, 0.2), (-0.32, 0.36), (-0.2, 0.26), (-0.08, 0.4), (0.08, 0.28), (0.2, 0.4), (0.34, 0.27), (0.5, 0.2)]
+        for k in 0..<(mouth.count - 1) {
+            let a = mouth[k], b = mouth[k + 1]
+            tri(a.0, a.1, b.0, b.1, (a.0 + b.0) / 2, 0.18 + (k % 2 == 0 ? 0.02 : 0.0))
+        }
+        let glow: Float = evening ? 0.6 : 0.35
+        batch.sprite(.glow, x: x, y: y + r * 0.05, hw: r * 2.2, hh: r * 1.8, r: 1, g: 0.6, b: 0.2, a: al * glow * flicker, additive: true)
+    }
+
+    private func drawPumpkins(_ batch: Batch) {
+        let al = treeAlpha
+        guard al > 0.003 else { return }
+        let h = treeH, w = treeW
+        // A few leaves around them.
+        for k in 0..<14 {
+            let u = Float(k) / 13 * 2 - 1
+            let c = Palette.leaves[k % Palette.leaves.count]
+            batch.sprite(k % 2 == 0 ? .maple : .leaf, x: treeX + u * w * 0.85, y: H - 4, hw: 7, hh: 8, rot: Float(k) * 1.9,
+                         r: c.0, g: c.1, b: c.2, a: al)
+        }
+        drawPumpkin(batch, x: treeX + w * 0.22, r: h * 0.12, face: false, al: al)
+        drawPumpkin(batch, x: treeX - w * 0.2, r: h * 0.19, face: true, al: al)
+    }
+
+    // MARK: - Butterflies (spring and summer days)
+
+    private struct Butterfly { var x: Float, baseY: Float, y: Float, vx: Float, phase: Float, tint: Int, size: Float }
+    private static let wingColors: [(Float, Float, Float)] = [(1.0, 0.55, 0.12), (0.36, 0.62, 1.0), (1.0, 0.88, 0.30), (1.0, 1.0, 1.0), (0.85, 0.45, 0.95)]
+    private var butterflies: [Butterfly] = []
+    private var nextButterfly: Float = 2
+
+    private func stepButterflies(dt: Float, cursorX: Float?, cursorY: Float) {
+        let welcome = (season == .spring || season == .summer) && !evening
+        if welcome && time > nextButterfly && butterflies.count < 3 {
+            let fromLeft = rng.unit() < 0.5
+            butterflies.append(Butterfly(x: fromLeft ? -20 : W + 20, baseY: rng.range(H * 0.25, H * 0.75), y: 0,
+                                         vx: (fromLeft ? 1 : -1) * rng.range(45, 75), phase: rng.range(0, 6.28),
+                                         tint: rng.int(Festive.wingColors.count), size: rng.range(17, 24)))
+            nextButterfly = time + rng.range(6, 15)
+        }
+        var i = 0
+        while i < butterflies.count {
+            var b = butterflies[i]
+            b.x += b.vx * dt
+            b.y = b.baseY + 34 * sin(time * 1.2 + b.phase) + 10 * sin(time * 3.3 + b.phase * 2)
+            // Shy: it flutters up and away from the cursor.
+            if let cx = cursorX {
+                let dx = b.x - cx, dy = b.y - cursorY
+                if dx * dx + dy * dy < 120 * 120 {
+                    b.baseY -= 140 * dt
+                    b.x += (dx > 0 ? 1 : -1) * 60 * dt
+                }
+            }
+            if b.x < -40 || b.x > W + 40 || b.baseY < -60 {
+                butterflies.swapAt(i, butterflies.count - 1)
+                butterflies.removeLast()
+                continue
+            }
+            butterflies[i] = b
+            i += 1
+        }
+    }
+
+    private func drawButterflies(_ batch: Batch) {
+        for b in butterflies {
+            let c = Festive.wingColors[b.tint]
+            let flap = abs(sin(time * 13 + b.phase))
+            let hw = b.size * (0.2 + 0.8 * flap) * 0.5
+            let tilt: Float = b.vx > 0 ? 0.12 : -0.12
+            batch.sprite(.wing, x: b.x + hw, y: b.y, hw: hw, hh: b.size * 0.5, rot: tilt, r: c.0, g: c.1, b: c.2, a: 1)
+            batch.sprite(.wing, x: b.x - hw, y: b.y, hw: hw, hh: b.size * 0.5, rot: tilt, r: c.0, g: c.1, b: c.2, a: 1, flipX: true)
+            batch.sprite(.coal, x: b.x, y: b.y + 0.5, hw: b.size * 0.07, hh: b.size * 0.32)
+            batch.line(b.x, b.y - b.size * 0.25, b.x - 2.5, b.y - b.size * 0.55, width: 0.8, r: 0.15, g: 0.12, b: 0.1, a: 0.9)
+            batch.line(b.x, b.y - b.size * 0.25, b.x + 2.5, b.y - b.size * 0.55, width: 0.8, r: 0.15, g: 0.12, b: 0.1, a: 0.9)
+        }
+    }
+
+    // MARK: - Fireflies (summer evenings)
+
+    private struct Firefly { var x: Float, y: Float, vx: Float, vy: Float, phase: Float, speed: Float }
+    private var fireflies: [Firefly] = []
+
+    private func stepFireflies(dt: Float, cursorX: Float?, cursorY: Float) {
+        let wanted = season == .summer && evening ? max(12, Int(W * H / 45_000)) : 0
+        if fireflies.count < wanted && rng.unit() < dt * 3 {
+            fireflies.append(Firefly(x: rng.range(0, W), y: rng.range(H * 0.35, H * 0.95), vx: 0, vy: 0,
+                                     phase: rng.range(0, 6.28), speed: rng.range(1.2, 2.6)))
+        } else if fireflies.count > wanted && rng.unit() < dt * 2 {
+            fireflies.removeLast()
+        }
+        for i in fireflies.indices {
+            var f = fireflies[i]
+            f.vx += sin(time * 0.9 + f.phase * 3) * 40 * dt
+            f.vy += cos(time * 0.7 + f.phase * 2) * 32 * dt
+            // Curious: they drift towards the cursor and circle it.
+            if let cx = cursorX {
+                let dx = cx - f.x, dy = cursorY - f.y
+                let d = max(1, (dx * dx + dy * dy).squareRoot())
+                if d < 280 {
+                    let pull: Float = d > 50 ? 26 : -20
+                    f.vx += dx / d * pull * dt
+                    f.vy += dy / d * pull * dt
+                }
+            }
+            f.vx *= max(0, 1 - dt * 0.8)
+            f.vy *= max(0, 1 - dt * 0.8)
+            f.x += f.vx * dt
+            f.y += f.vy * dt
+            if f.x < 0 { f.vx += 20 * dt } else if f.x > W { f.vx -= 20 * dt }
+            if f.y < H * 0.2 { f.vy += 20 * dt } else if f.y > H - 10 { f.vy -= 20 * dt }
+            fireflies[i] = f
+        }
+    }
+
+    private func drawFireflies(_ batch: Batch) {
+        for f in fireflies {
+            // They fly out in the dark, behind the windows.
+            var behind = false
+            for o in occluders where o.contains(f.x, f.y) { behind = true; break }
+            if behind { continue }
+            let s = max(0, sin(time * f.speed + f.phase))
+            let glow = 0.12 + 0.88 * s * s
+            batch.sprite(.glow, x: f.x, y: f.y, hw: 26, hh: 26, r: 0.72, g: 1.0, b: 0.30, a: glow, additive: true)
+            batch.sprite(.glow, x: f.x, y: f.y, hw: 8, hh: 8, r: 0.9, g: 1.0, b: 0.5, a: glow, additive: true)
+            batch.sprite(.dot, x: f.x, y: f.y, hw: 2.4, hh: 2.4, r: 1, g: 1, b: 0.75, a: 0.3 + 0.7 * glow)
+        }
     }
 }

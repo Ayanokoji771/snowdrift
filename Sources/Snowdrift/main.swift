@@ -4,7 +4,9 @@ import ServiceManagement
 let args = CommandLine.arguments
 
 if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
-    exit(Snapshot.run(path: args[i + 1]) ? 0 : 1)
+    // --season 0…3 (winter, spring, summer, autumn), --evening for the night sky.
+    let season = args.firstIndex(of: "--season").flatMap { $0 + 1 < args.count ? Int(args[$0 + 1]) : nil } ?? 0
+    exit(Snapshot.run(path: args[i + 1], season: season, evening: args.contains("--evening")) ? 0 : 1)
 }
 if args.contains("--dump-menu") {
     _ = NSApplication.shared

@@ -35,6 +35,7 @@ final class Settings {
             "islandPuff": true,
             "checkUpdates": true,
             "autoUpdate": true,
+            "season": -1,
         ])
         // Older builds had an on/off switch for full screen.
         if d.object(forKey: "fullScreenMode") == nil, d.object(forKey: "hideInFullScreen") != nil {
@@ -188,6 +189,12 @@ final class Settings {
     var checkUpdates: Bool {
         get { d.bool(forKey: "checkUpdates") }
         set { set(newValue, "checkUpdates") }
+    }
+
+    /// -1 follows the calendar; 0 winter, 1 spring, 2 summer, 3 autumn.
+    var season: Int {
+        get { min(3, max(-1, d.integer(forKey: "season"))) }
+        set { set(newValue, "season") }
     }
 
     /// Install new versions on their own (restarting while the Mac is idle).
