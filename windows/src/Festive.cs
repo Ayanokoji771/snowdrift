@@ -3,7 +3,8 @@ using System.Collections.Generic;
 
 namespace Snowdrift
 {
-    /// <summary>New Year extras for one screen: fireworks, a Christmas tree and frosty corners.</summary>
+    /// <summary>Extras for one screen: fireworks, a corner decoration for each season (Christmas tree, cherry tree,
+    /// sunflowers, pumpkins), frosty corners, and the small living things: butterflies and fireflies.</summary>
     public sealed class Festive
     {
         private readonly float W, H;
@@ -24,18 +25,55 @@ namespace Snowdrift
             LayoutTree();
         }
 
-        public void Step(float dt, bool showTree, List<FRect> occluders)
+        public int Season { get; private set; }
+        private bool evening;
+        private List<FRect> occluders = new List<FRect>();
+
+        public void Step(float dt, int season, bool showDecor, bool evening, float? cursorX, float cursorY, List<FRect> occluders)
         {
             time += dt;
+            if (season != Season)
+            {
+                // The old decoration goes at once; the new one fades in.
+                Season = season;
+                treeAlpha = 0;
+                fallingPetals.Clear();
+                butterflies.Clear();
+            }
+            this.evening = evening;
+            this.occluders = occluders;
             StepFireworks(dt);
             bool free = true;
             foreach (var o in occluders)
             {
                 if (o.X0 < treeBox.X1 && o.X1 > treeBox.X0 && o.Y0 < treeBox.Y1 && o.Y1 > treeBox.Y0) { free = false; break; }
             }
-            float target = showTree && free ? 1 : 0;
+            float target = showDecor && free ? 1 : 0;
             treeAlpha += (target - treeAlpha) * MathF.Min(1, dt * 5);
             if (MathF.Abs(target - treeAlpha) < 0.003f) treeAlpha = target;
+            StepFallingPetals(dt);
+            StepButterflies(dt, cursorX, cursorY);
+            StepFireflies(dt, cursorX, cursorY);
+        }
+
+        /// <summary>The decoration in the corner for this season.</summary>
+        public void DrawDecor(Batch batch)
+        {
+            switch (Season)
+            {
+                case 1: DrawSakura(batch); break;
+                case 2: DrawSunflowers(batch); break;
+                case 3: DrawPumpkins(batch); break;
+                default: DrawTree(batch); break;
+            }
+        }
+
+        /// <summary>Butterflies, fireflies and petals blowing off the cherry tree (in front of everything else).</summary>
+        public void DrawCreatures(Batch batch)
+        {
+            DrawFallingPetals(batch);
+            DrawButterflies(batch);
+            DrawFireflies(batch);
         }
 
         // ---- Fireworks ----
@@ -389,6 +427,345 @@ namespace Snowdrift
             batch.Spr(Sprite.Frost, W - hw, hw, hw, hw, 0, 0.92f, 0.96f, 1, a, false, true);
             batch.Spr(Sprite.Frost, hw, G - hw, hw, hw, 0, 0.92f, 0.96f, 1, a, false, false, true);
             batch.Spr(Sprite.Frost, W - hw, G - hw, hw, hw, 0, 0.92f, 0.96f, 1, a, false, true, true);
+        }
+
+        // ---- Spring: a cherry tree in blossom ----
+
+        private struct Twig { public float X0, Y0, X1, Y1, Width; }
+        private struct Blossom { public float X, Y, R, Rot; public int Tint; }
+
+        private List<Twig> twigs;
+        private List<Blossom> clouds, flowers;
+
+        private void LayoutSakura()
+        {
+            if (twigs != null) return;
+            var r = new Rng(31415);
+            float h = treeH, cx = treeX;
+            twigs = new List<Twig>();
+            clouds = new List<Blossom>();
+            flowers = new List<Blossom>();
+            var ends = new List<(float, float)>();
+            // A trunk that leans a little, then branches that split twice.
+            float tx = cx - h * 0.04f, ty = G - h * 0.52f;
+            twigs.Add(new Twig { X0 = cx, Y0 = G, X1 = tx, Y1 = ty, Width = h * 0.075f });
+            void Branch(float x, float y, float angle, float length, float width, int depth)
+            {
+                float x2 = x + MathF.Sin(angle) * length, y2 = y - MathF.Cos(angle) * length;
+                twigs.Add(new Twig { X0 = x, Y0 = y, X1 = x2, Y1 = y2, Width = width });
+                if (depth == 0) { ends.Add((x2, y2)); return; }
+                foreach (float side in new[] { -1f, 1f })
+                    Branch(x2, y2, angle + side * r.Range(0.35f, 0.7f), length * r.Range(0.6f, 0.75f), width * 0.62f, depth - 1);
+            }
+            foreach (float a in new[] { -0.75f, -0.1f, 0.6f })
+                Branch(tx, ty, a + r.Range(-0.1f, 0.1f), h * r.Range(0.2f, 0.26f), h * 0.045f, 2);
+            foreach (var (x, y) in ends)
+            {
+                for (int k = 0; k < 4; k++)
+                    clouds.Add(new Blossom { X = x + r.Range(-h * 0.08f, h * 0.08f), Y = y + r.Range(-h * 0.06f, h * 0.05f), R = h * r.Range(0.07f, 0.11f), Tint = r.Int(Palette.Petals.Length) });
+                for (int k = 0; k < 5; k++)
+                    flowers.Add(new Blossom { X = x + r.Range(-h * 0.11f, h * 0.11f), Y = y + r.Range(-h * 0.08f, h * 0.07f), R = h * r.Range(0.022f, 0.03f), Tint = r.Int(Palette.Petals.Length), Rot = r.Range(0, 1.26f) });
+            }
+        }
+
+        private void DrawSakura(Batch batch)
+        {
+            float al = treeAlpha;
+            if (al <= 0.003f) return;
+            LayoutSakura();
+            // A carpet of fallen petals under the tree.
+            for (int k = 0; k < 22; k++)
+            {
+                float u = k / 21f * 2 - 1;
+                var c = Palette.Petals[k % Palette.Petals.Length];
+                batch.Spr(Sprite.Dot, treeX + u * treeW * 0.8f, G - 2.5f, 9, 3.5f, 0, c.R, c.G, c.B, al * 0.8f);
+            }
+            foreach (var tw in twigs)
+            {
+                batch.Line(tw.X0, tw.Y0, tw.X1, tw.Y1, tw.Width, 0.30f, 0.18f, 0.14f, al);
+                batch.Line(tw.X0 - tw.Width * 0.18f, tw.Y0, tw.X1 - tw.Width * 0.18f, tw.Y1, tw.Width * 0.35f, 0.44f, 0.29f, 0.22f, al);
+            }
+            foreach (var b in clouds)
+            {
+                var c = Palette.Petals[b.Tint];
+                batch.Spr(Sprite.Dot, b.X, b.Y, b.R, b.R * 0.9f, 0, c.R, c.G, c.B, al * 0.85f);
+            }
+            foreach (var b in flowers)
+            {
+                var c = Palette.Petals[b.Tint];
+                for (int k = 0; k < 5; k++)
+                {
+                    float a = b.Rot + k / 5f * 6.283f;
+                    batch.Spr(Sprite.Petal, b.X + MathF.Sin(a) * b.R * 0.7f, b.Y - MathF.Cos(a) * b.R * 0.7f, b.R * 0.62f, b.R * 0.78f, a,
+                              MathF.Min(1, c.R + 0.05f), MathF.Min(1, c.G + 0.08f), MathF.Min(1, c.B + 0.06f), al);
+                }
+                batch.Spr(Sprite.Dot, b.X, b.Y, b.R * 0.32f, b.R * 0.32f, 0, 0.95f, 0.45f, 0.55f, al);
+            }
+        }
+
+        // Petals blowing off the cherry tree.
+        private struct FallingPetal { public float X, Y, VX, VY, Rot, Spin, Flip, Life; public int Tint; }
+        private readonly List<FallingPetal> fallingPetals = new List<FallingPetal>();
+        private float petalClock;
+
+        private void StepFallingPetals(float dt)
+        {
+            if (Season == 1 && treeAlpha > 0.5f)
+            {
+                LayoutSakura();
+                petalClock += dt;
+                while (petalClock > 0.35f && clouds.Count > 0)
+                {
+                    petalClock -= 0.35f;
+                    var b = clouds[rng.Int(clouds.Count)];
+                    fallingPetals.Add(new FallingPetal
+                    {
+                        X = b.X + rng.Range(-b.R, b.R), Y = b.Y + rng.Range(-b.R, b.R) * 0.5f, VX = rng.Range(-30, 10), VY = rng.Range(8, 20),
+                        Rot = rng.Range(0, 6.28f), Spin = rng.Range(-3, 3), Flip = rng.Range(0, 6.28f), Tint = rng.Int(Palette.Petals.Length),
+                    });
+                }
+            }
+            int i = 0;
+            while (i < fallingPetals.Count)
+            {
+                var p = fallingPetals[i];
+                p.Life += dt;
+                p.VX += (MathF.Sin(time * 1.3f + p.Flip) * 25 - p.VX) * MathF.Min(1, dt * 1.5f);
+                p.X += p.VX * dt;
+                p.Y += (p.VY + 10 * MathF.Sin(time * 2 + p.Flip)) * dt;
+                p.Rot += p.Spin * dt;
+                p.Flip += 3 * dt;
+                if (p.Y > H + 10 || p.Life > 30)
+                {
+                    fallingPetals[i] = fallingPetals[fallingPetals.Count - 1];
+                    fallingPetals.RemoveAt(fallingPetals.Count - 1);
+                    continue;
+                }
+                fallingPetals[i] = p;
+                i++;
+            }
+        }
+
+        private void DrawFallingPetals(Batch batch)
+        {
+            foreach (var p in fallingPetals)
+            {
+                var c = Palette.Petals[p.Tint];
+                batch.Spr(Sprite.Petal, p.X, p.Y, 4 * MathF.Max(0.22f, MathF.Abs(MathF.Cos(p.Flip))), 4.6f, p.Rot, c.R, c.G, c.B, 0.95f);
+            }
+        }
+
+        // ---- Summer: sunflowers ----
+
+        private void DrawSunflowers(Batch batch)
+        {
+            float al = treeAlpha;
+            if (al <= 0.003f) return;
+            float h = treeH, w = treeW;
+            // Grass.
+            for (int k = 0; k < 40; k++)
+            {
+                float u = k / 39f * 2 - 1;
+                float x = treeX + u * w * 0.85f;
+                float len = 8 + (k * 37) % 11;
+                float lean = MathF.Sin(time * 1.1f + k) * 1.5f + (k % 3 - 1) * 2;
+                batch.Line(x, G, x + lean, G - len, 1.6f, 0.24f, 0.56f, 0.20f, al);
+            }
+            var spots = new[] { (-0.38f, 0.78f), (0.02f, 1.0f), (0.36f, 0.62f) };
+            for (int i = 0; i < spots.Length; i++)
+            {
+                var (dx, tall) = spots[i];
+                float sway = MathF.Sin(time * 0.8f + i * 1.7f) * 0.05f;
+                float baseX = treeX + dx * w;
+                float len = h * tall;
+                float hx = baseX + MathF.Sin(sway) * len, hy = G - MathF.Cos(sway) * len;
+                batch.Line(baseX, G, hx, hy, 4, 0.22f, 0.50f, 0.18f, al);
+                float[] ats = { 0.35f, 0.62f };
+                for (int k = 0; k < 2; k++)
+                {
+                    float side = (k + i) % 2 == 0 ? 1 : -1;
+                    float lx = baseX + (hx - baseX) * ats[k], ly = G + (hy - G) * ats[k];
+                    batch.Spr(Sprite.Leaf, lx + side * 11, ly - 4, 9, 13, side * 1.0f + sway, 0.30f, 0.62f, 0.22f, al);
+                }
+                float r = h * (0.085f + 0.02f * tall);
+                for (int ring = 0; ring < 2; ring++)
+                {
+                    for (int k = 0; k < 16; k++)
+                    {
+                        float a = k / 16f * 6.283f + ring * 0.2f + sway;
+                        float rr = r * (ring == 0 ? 1.05f : 0.9f);
+                        float shade = ring == 0 ? 0.88f : 1;
+                        batch.Spr(Sprite.Petal, hx + MathF.Sin(a) * rr, hy - MathF.Cos(a) * rr, r * 0.26f, r * 0.55f, a, 1.0f * shade, 0.78f * shade, 0.14f * shade, al);
+                    }
+                }
+                batch.Spr(Sprite.BallBase, hx, hy, r * 0.62f, r * 0.62f, 0, 0.42f, 0.25f, 0.09f, al);
+                batch.Spr(Sprite.BallTex, hx, hy, r * 0.58f, r * 0.58f, i, 0.2f, 0.1f, 0.03f, al * 0.9f);
+            }
+        }
+
+        // ---- Autumn: pumpkins with a candle inside ----
+
+        private void DrawPumpkin(Batch batch, float x, float r, bool face, float al)
+        {
+            float y = G - r * 0.82f;
+            var ribs = new[] { (-0.55f, 0.62f, 0.78f), (0.55f, 0.62f, 0.78f), (-0.28f, 0.7f, 0.9f), (0.28f, 0.7f, 0.9f), (0f, 0.66f, 1.0f) };
+            foreach (var (dx, wk, shade) in ribs)
+                batch.Spr(Sprite.BallBase, x + dx * r, y, r * wk, r * 0.86f, 0, 1.0f * shade, 0.52f * shade, 0.10f * shade, al);
+            batch.Rect(x - r * 0.08f, y - r * 1.06f, r * 0.16f, r * 0.26f, 0.36f, 0.30f, 0.12f, al);
+            batch.Line(x + r * 0.05f, y - r * 0.95f, x + r * 0.35f, y - r * 1.12f, 1.8f, 0.30f, 0.45f, 0.16f, al);
+            if (!face) return;
+            float flicker = 0.78f + 0.22f * MathF.Sin(time * 9.0f) * MathF.Sin(time * 5.3f + 1);
+            float lr = 1.0f, lg = 0.82f * flicker + 0.1f, lb = 0.28f * flicker;
+            void Tri(float ax, float ay, float bx, float by, float cx, float cy)
+            {
+                batch.Tri(batch.Flat(x + ax * r, y + ay * r, lr, lg, lb, al), batch.Flat(x + bx * r, y + by * r, lr, lg, lb, al),
+                          batch.Flat(x + cx * r, y + cy * r, lr, lg, lb, al));
+            }
+            Tri(-0.42f, -0.08f, -0.16f, -0.08f, -0.29f, -0.34f);
+            Tri(0.16f, -0.08f, 0.42f, -0.08f, 0.29f, -0.34f);
+            Tri(-0.07f, 0.08f, 0.07f, 0.08f, 0, -0.06f);
+            var mouth = new[] { (-0.5f, 0.2f), (-0.32f, 0.36f), (-0.2f, 0.26f), (-0.08f, 0.4f), (0.08f, 0.28f), (0.2f, 0.4f), (0.34f, 0.27f), (0.5f, 0.2f) };
+            for (int k = 0; k < mouth.Length - 1; k++)
+            {
+                var a = mouth[k];
+                var b = mouth[k + 1];
+                Tri(a.Item1, a.Item2, b.Item1, b.Item2, (a.Item1 + b.Item1) / 2, 0.18f + (k % 2 == 0 ? 0.02f : 0));
+            }
+            float glow = evening ? 0.6f : 0.35f;
+            batch.Spr(Sprite.Glow, x, y + r * 0.05f, r * 2.2f, r * 1.8f, 0, 1, 0.6f, 0.2f, al * glow * flicker, true);
+        }
+
+        private void DrawPumpkins(Batch batch)
+        {
+            float al = treeAlpha;
+            if (al <= 0.003f) return;
+            float h = treeH, w = treeW;
+            for (int k = 0; k < 14; k++)
+            {
+                float u = k / 13f * 2 - 1;
+                var c = Palette.Leaves[k % Palette.Leaves.Length];
+                batch.Spr(k % 2 == 0 ? Sprite.Maple : Sprite.Leaf, treeX + u * w * 0.85f, G - 4, 7, 8, k * 1.9f, c.R, c.G, c.B, al);
+            }
+            DrawPumpkin(batch, treeX + w * 0.22f, h * 0.12f, false, al);
+            DrawPumpkin(batch, treeX - w * 0.2f, h * 0.19f, true, al);
+        }
+
+        // ---- Butterflies (spring and summer days) ----
+
+        private struct Butterfly { public float X, BaseY, Y, VX, Phase, Size; public int Tint; }
+        private static readonly (float R, float G, float B)[] WingColors = { (1.0f, 0.55f, 0.12f), (0.36f, 0.62f, 1.0f), (1.0f, 0.88f, 0.30f), (1.0f, 1.0f, 1.0f), (0.85f, 0.45f, 0.95f) };
+        private readonly List<Butterfly> butterflies = new List<Butterfly>();
+        private float nextButterfly = 2;
+
+        private void StepButterflies(float dt, float? cursorX, float cursorY)
+        {
+            bool welcome = (Season == 1 || Season == 2) && !evening;
+            if (welcome && time > nextButterfly && butterflies.Count < 3)
+            {
+                bool fromLeft = rng.Unit() < 0.5f;
+                butterflies.Add(new Butterfly
+                {
+                    X = fromLeft ? -20 : W + 20, BaseY = rng.Range(H * 0.25f, H * 0.75f), VX = (fromLeft ? 1 : -1) * rng.Range(45, 75),
+                    Phase = rng.Range(0, 6.28f), Tint = rng.Int(WingColors.Length), Size = rng.Range(17, 24),
+                });
+                nextButterfly = time + rng.Range(6, 15);
+            }
+            int i = 0;
+            while (i < butterflies.Count)
+            {
+                var b = butterflies[i];
+                b.X += b.VX * dt;
+                b.Y = b.BaseY + 34 * MathF.Sin(time * 1.2f + b.Phase) + 10 * MathF.Sin(time * 3.3f + b.Phase * 2);
+                // Shy: it flutters up and away from the cursor.
+                if (cursorX is float cx)
+                {
+                    float dx = b.X - cx, dy = b.Y - cursorY;
+                    if (dx * dx + dy * dy < 120 * 120)
+                    {
+                        b.BaseY -= 140 * dt;
+                        b.X += (dx > 0 ? 1 : -1) * 60 * dt;
+                    }
+                }
+                if (b.X < -40 || b.X > W + 40 || b.BaseY < -60)
+                {
+                    butterflies[i] = butterflies[butterflies.Count - 1];
+                    butterflies.RemoveAt(butterflies.Count - 1);
+                    continue;
+                }
+                butterflies[i] = b;
+                i++;
+            }
+        }
+
+        private void DrawButterflies(Batch batch)
+        {
+            foreach (var b in butterflies)
+            {
+                var c = WingColors[b.Tint];
+                float flap = MathF.Abs(MathF.Sin(time * 13 + b.Phase));
+                float hw = b.Size * (0.2f + 0.8f * flap) * 0.5f;
+                float tilt = b.VX > 0 ? 0.12f : -0.12f;
+                batch.Spr(Sprite.Wing, b.X + hw, b.Y, hw, b.Size * 0.5f, tilt, c.R, c.G, c.B, 1);
+                batch.Spr(Sprite.Wing, b.X - hw, b.Y, hw, b.Size * 0.5f, tilt, c.R, c.G, c.B, 1, false, true);
+                batch.Spr(Sprite.Coal, b.X, b.Y + 0.5f, b.Size * 0.07f, b.Size * 0.32f);
+                batch.Line(b.X, b.Y - b.Size * 0.25f, b.X - 2.5f, b.Y - b.Size * 0.55f, 0.8f, 0.15f, 0.12f, 0.1f, 0.9f);
+                batch.Line(b.X, b.Y - b.Size * 0.25f, b.X + 2.5f, b.Y - b.Size * 0.55f, 0.8f, 0.15f, 0.12f, 0.1f, 0.9f);
+            }
+        }
+
+        // ---- Fireflies (summer evenings) ----
+
+        private struct Firefly { public float X, Y, VX, VY, Phase, Speed; }
+        private readonly List<Firefly> fireflies = new List<Firefly>();
+
+        private void StepFireflies(float dt, float? cursorX, float cursorY)
+        {
+            int wanted = Season == 2 && evening ? Math.Max(12, (int)(W * H / 45000)) : 0;
+            if (fireflies.Count < wanted && rng.Unit() < dt * 3)
+                fireflies.Add(new Firefly { X = rng.Range(0, W), Y = rng.Range(H * 0.35f, H * 0.95f), Phase = rng.Range(0, 6.28f), Speed = rng.Range(1.2f, 2.6f) });
+            else if (fireflies.Count > wanted && rng.Unit() < dt * 2)
+                fireflies.RemoveAt(fireflies.Count - 1);
+            for (int i = 0; i < fireflies.Count; i++)
+            {
+                var f = fireflies[i];
+                f.VX += MathF.Sin(time * 0.9f + f.Phase * 3) * 40 * dt;
+                f.VY += MathF.Cos(time * 0.7f + f.Phase * 2) * 32 * dt;
+                // Curious: they drift towards the cursor and circle it.
+                if (cursorX is float cx)
+                {
+                    float dx = cx - f.X, dy = cursorY - f.Y;
+                    float d = MathF.Max(1, MathF.Sqrt(dx * dx + dy * dy));
+                    if (d < 280)
+                    {
+                        float pull = d > 50 ? 26 : -20;
+                        f.VX += dx / d * pull * dt;
+                        f.VY += dy / d * pull * dt;
+                    }
+                }
+                f.VX *= MathF.Max(0, 1 - dt * 0.8f);
+                f.VY *= MathF.Max(0, 1 - dt * 0.8f);
+                f.X += f.VX * dt;
+                f.Y += f.VY * dt;
+                if (f.X < 0) f.VX += 20 * dt; else if (f.X > W) f.VX -= 20 * dt;
+                if (f.Y < H * 0.2f) f.VY += 20 * dt; else if (f.Y > H - 10) f.VY -= 20 * dt;
+                fireflies[i] = f;
+            }
+        }
+
+        private void DrawFireflies(Batch batch)
+        {
+            foreach (var f in fireflies)
+            {
+                // They fly out in the dark, behind the windows.
+                bool behind = false;
+                foreach (var o in occluders) if (o.Contains(f.X, f.Y)) { behind = true; break; }
+                if (behind) continue;
+                float s = MathF.Max(0, MathF.Sin(time * f.Speed + f.Phase));
+                float glow = 0.12f + 0.88f * s * s;
+                batch.Spr(Sprite.Glow, f.X, f.Y, 26, 26, 0, 0.72f, 1.0f, 0.30f, glow, true);
+                batch.Spr(Sprite.Glow, f.X, f.Y, 8, 8, 0, 0.9f, 1.0f, 0.5f, glow, true);
+                batch.Spr(Sprite.Dot, f.X, f.Y, 2.4f, 2.4f, 0, 1, 1, 0.75f, 0.3f + 0.7f * glow);
+            }
         }
     }
 }

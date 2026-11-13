@@ -4,7 +4,7 @@
 
 ![Snowdrift](docs/preview.png)
 
-Снежинки падают поверх экрана и собираются в сугробы на окнах, на Dock или панели задач и внизу экрана. Сдвиньте окно — сугроб поедет вместе с ним; резко дёрните — снег слетит. Из снега можно скатать снежки и слепить снеговика, запустить салют, а у «чёлки» (или вверху экрана на Windows) живёт снежный остров с музыкой.
+Снежинки падают поверх экрана и собираются в сугробы на окнах, на Dock или панели задач и внизу экрана. А весной, летом и осенью вместо снега — лепестки сакуры, пух одуванчиков со светлячками и листопад. Сдвиньте окно — сугроб поедет вместе с ним; резко дёрните — снег слетит. Из снега можно скатать снежки и слепить снеговика, запустить салют, а у «чёлки» (или вверху экрана на Windows) живёт снежный остров с музыкой.
 
 <details>
 <summary>Так это выглядит на настоящем Windows (снимок с проверочной машины GitHub)</summary>
@@ -66,6 +66,18 @@ Snowdrift обновляется сам. Раз в день он узнаёт у
 - Из терминала обновляет та же команда, что и ставит (см. выше).
 - В версиях 1.0.0–1.1.1 кнопки ещё нет или она спрятана. Выполните команду установки один раз, и она заменит старую версию на месте.
 
+## Времена года 🌸☀️🍂❄️
+
+| Весна | Лето (вечер) | Осень |
+| --- | --- | --- |
+| ![Весна](docs/season-spring.png) | ![Лето](docs/season-summer.png) | ![Осень](docs/season-autumn.png) |
+
+- **Зима ❄️** — снег, сугробы, снеговики, ёлка с подарками, гирлянда и иней.
+- **Весна 🌸** — кружатся лепестки сакуры и тонким розовым слоем ложатся на окна; в углу цветёт сакура и роняет лепестки; порхают бабочки (от курсора улетают).
+- **Лето ☀️** — днём плывёт пух одуванчиков и летают бабочки, в углу качаются подсолнухи; вечером загораются светлячки и подлетают к курсору.
+- **Осень 🍂** — листья кружатся, как маятник, и копятся кучками на окнах, Dock / панели задач и внизу экрана; варежка разметает их; в углу тыквы, у одной горит свечка.
+- Сезон меняется сам по календарю (в Южном полушарии — наоборот) или выбирается в меню «Время года». Когда сезон сменяется, старый снег или листья разлетаются, снеговики тают. Значок в строке меню (Mac) и «остров» с музыкой тоже меняются со временем года.
+
 ## Возможности
 
 - **Сугробы** на верхних краях окон, на Dock / панели задач и внизу экрана. Снег мягко оседает и осыпается с краёв. Снег не ложится на части окон, закрытые другими окнами; у свёрнутых окон и окон на других рабочих столах сугроб сохраняется, у закрытых — осыпается. Когда Dock или панель задач прячется (полный экран, автоскрытие), их сугроб ждёт их возвращения.
@@ -102,6 +114,7 @@ Snowdrift обновляется сам. Раз в день он узнаёт у
 | ⌃⌥H | Ctrl+Alt+H | спрятать или вернуть снег над текущим приложением |
 | ⌃⌥D | Ctrl+Alt+D | убрать весь снег |
 | ⌃⌥F | Ctrl+Alt+F | салют |
+| ⌃⌥X | Ctrl+Alt+X | убрать всех снеговиков и снежки |
 
 ## Приватность
 
@@ -158,4 +171,4 @@ MIT — см. [LICENSE](LICENSE).
 
 ---
 
-**English:** Snowdrift puts snow on your macOS or Windows desktop: it piles up on windows, the Dock/taskbar and the bottom of the screen, rides along when you move windows, and flies off when you yank them. Roll snowballs into snowmen, launch fireworks, enjoy a tree, garland and frost, and control music from a snowy Dynamic-Island-style widget. Free, open source (MIT), no accounts or analytics. Downloads are on the [Releases](https://github.com/Ayanokoji771/snowdrift/releases) page.
+**English:** Snowdrift puts snow on your macOS or Windows desktop — and cherry petals in spring, dandelion fluff with fireflies in summer and falling leaves in autumn: it piles up on windows, the Dock/taskbar and the bottom of the screen, rides along when you move windows, and flies off when you yank them. Roll snowballs into snowmen, launch fireworks, enjoy a tree, garland and frost, and control music from a snowy Dynamic-Island-style widget. Free, open source (MIT), no accounts or analytics. Downloads are on the [Releases](https://github.com/Ayanokoji771/snowdrift/releases) page.

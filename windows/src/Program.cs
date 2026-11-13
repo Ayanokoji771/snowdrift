@@ -22,7 +22,13 @@ namespace Snowdrift
                     switch (args[0])
                     {
                         case "--selftest": return SelfTest.Run(args[1]) ? 0 : 1;
-                        case "--snapshot": return Snapshot.Run(args[1]) ? 0 : 1;
+                        case "--snapshot":
+                        {
+                            // --season 0…3 (winter, spring, summer, autumn), --evening for the night sky.
+                            int at = Array.IndexOf(args, "--season");
+                            int season = at > 0 && at + 1 < args.Length && int.TryParse(args[at + 1], out int v) ? v : 0;
+                            return Snapshot.Run(args[1], season, Array.IndexOf(args, "--evening") > 0) ? 0 : 1;
+                        }
                         case "--island-preview": return IslandPreview.Run(args[1]) ? 0 : 1;
                         case "--update-test": return Updater.RunTest(args[1]);
                     }

@@ -24,6 +24,10 @@ namespace Snowdrift
         public bool Tree { get; set; }
         public bool Frost { get; set; }
         public bool Sparkle { get; set; }
+        /// <summary>0 winter, 1 spring, 2 summer, 3 autumn.</summary>
+        public int Season { get; set; }
+        /// <summary>Evening or night (fireflies).</summary>
+        public bool Evening { get; set; }
 
         public static SimConfig Default => new SimConfig
         {
@@ -37,11 +41,14 @@ namespace Snowdrift
         public float X, Y, VX;
         public float Size, Alpha;
         public byte Layer;   // 0 far, 1 middle, 2 near
-        public byte Kind;    // 0 soft dot, 1…3 crystal
+        public byte Kind;    // 0 soft dot, 1…3 crystal, 4 petal, 5 leaf, 6 maple leaf, 7 dandelion fluff
         public float Phase, SwayAmp, SwayFreq;
         public float Rot, Spin;
         public float Fall;
         public float Vol;
+        public byte Tint;
+        /// <summary>Tumbling: the item turns edge-on and back.</summary>
+        public float Flip, FlipSpeed;
     }
 
     public struct Debris
@@ -49,6 +56,19 @@ namespace Snowdrift
         public float X, Y, VX, VY;
         public float Size, Vol;
         public bool CanLand;
+        /// <summary>0 snow, 1 petal, 2 leaf.</summary>
+        public byte Kind, Tint;
+        public float Rot, Spin;
+    }
+
+    /// <summary>Colours of the seasons.</summary>
+    public static class Palette
+    {
+        public static readonly (float R, float G, float B)[] Petals = { (1.0f, 0.80f, 0.87f), (1.0f, 0.70f, 0.81f), (0.99f, 0.89f, 0.93f), (0.98f, 0.62f, 0.76f) };
+        public static readonly (float R, float G, float B)[] Leaves =
+        {
+            (0.96f, 0.56f, 0.12f), (0.88f, 0.30f, 0.10f), (0.98f, 0.76f, 0.18f), (0.72f, 0.20f, 0.08f), (0.84f, 0.46f, 0.14f), (0.62f, 0.40f, 0.12f),
+        };
     }
 
     /// <summary>A window as the snow sees it, in this screen's points.</summary>
@@ -147,6 +167,13 @@ namespace Snowdrift
             {
                 var old = config;
                 config = value;
+                if (value.Season != old.Season)
+                {
+                    // A new season: what lies around blows away, snowmen melt, the new season starts falling.
+                    ClearSnow(true, DebrisKind(old.Season));
+                    ClearBalls();
+                    NeedsWindowRefresh = true;
+                }
                 if (value.Drifts != old.Drifts)
                 {
                     if (value.Drifts == 0) ClearSnow(false);
@@ -199,7 +226,14 @@ namespace Snowdrift
 
         // ---- Settings-derived numbers ----
 
-        private float DriftCap => new float[] { 0, 13, 22, 36 }[config.Drifts];
+        public int Season => Math.Clamp(config.Season, 0, 3);
+        private bool Winter => Season == 0;
+
+        /// <summary>What the mitten and the wind blow around: snow, petals or leaves.</summary>
+        private static byte DebrisKind(int season) => season == 1 ? (byte)1 : (season == 3 ? (byte)2 : (byte)0);
+
+        /// <summary>Snow piles high; petals lie in a thin layer, leaves in heaps; summer fluff doesn't settle.</summary>
+        private float DriftCap => new float[] { 0, 13, 22, 36 }[config.Drifts] * new float[] { 1, 0.4f, 0, 0.62f }[Season];
 
         private int TargetCount
         {
@@ -207,7 +241,8 @@ namespace Snowdrift
             {
                 float b = new float[] { 150, 430, 1150 }[config.Intensity];
                 float area = (W * H) / (1512f * 982f);
-                return (int)(b * area * (config.LowPower ? 0.6f : 1f));
+                float perSeason = new float[] { 1, 0.34f, 0.13f, 0.15f }[Season];
+                return Math.Max(4, (int)(b * area * perSeason * (config.LowPower ? 0.6f : 1f)));
             }
         }
 
@@ -498,7 +533,7 @@ namespace Snowdrift
         }
 
         /// <summary>The shovel: all snow puffs up and is gone.</summary>
-        public void ClearSnow(bool puff = true)
+        public void ClearSnow(bool puff = true, byte? kind = null)
         {
             foreach (var s in surfaces.Values)
             {
@@ -511,7 +546,7 @@ namespace Snowdrift
                         acc += s.H[i] * ColW;
                         if (acc >= 14)
                         {
-                            Emit(s.X0 + i * ColW, s.Y - s.H[i] * rng.Unit(), rng.Range(-90, 90), rng.Range(-190, -40), 8, false);
+                            Emit(s.X0 + i * ColW, s.Y - s.H[i] * rng.Unit(), rng.Range(-90, 90), rng.Range(-190, -40), 8, false, kind);
                             acc = 0;
                         }
                     }
@@ -623,7 +658,7 @@ namespace Snowdrift
             StepDebris(dt);
             Relax();
             StepBalls(dt, cursorSpeed);
-            Festive.Step(dt, config.Tree, occluders);
+            Festive.Step(dt, Season, config.Tree, config.Evening, cursorInside ? cx : (float?)null, cy, occluders);
             if (config.Melt) Melt(dt);
 
             // What is under the cursor.
@@ -644,31 +679,68 @@ namespace Snowdrift
         {
             float pick = rng.Unit();
             byte layer = pick < 0.30f ? (byte)0 : (pick < 0.76f ? (byte)1 : (byte)2);
-            float size, alpha, fall, vol;
-            byte kind = 0;
-            switch (layer)
-            {
-                case 0:
-                    size = rng.Range(0.7f, 1.25f); alpha = rng.Range(0.35f, 0.6f); fall = rng.Range(28, 48); vol = 0;
-                    break;
-                case 1:
-                    size = rng.Range(1.3f, 2.3f); alpha = rng.Range(0.7f, 0.95f); fall = rng.Range(50, 85); vol = 12;
-                    break;
-                default:
-                    size = rng.Range(2.3f, 4.4f); alpha = rng.Range(0.85f, 1); fall = rng.Range(85, 135); vol = 14;
-                    if (size > 3.0f) kind = (byte)(1 + rng.Int(3));
-                    break;
-            }
-            size *= new float[] { 0.72f, 1.0f, 1.4f }[config.FlakeSize];
+            float scale = new float[] { 0.72f, 1.0f, 1.4f }[config.FlakeSize];
             var f = new Flake
             {
                 X = rng.Range(-40, W + 40),
                 Y = anywhere ? rng.Range(-20, H) : -rng.Range(6, 60),
                 VX = wind * 0.5f,
-                Size = size, Alpha = alpha, Layer = layer, Kind = kind,
+                Layer = layer,
                 Phase = rng.Range(0, 6.28f), SwayAmp = rng.Range(6, 22), SwayFreq = rng.Range(0.6f, 1.8f),
-                Rot = rng.Range(0, 6.28f), Spin = rng.Range(-1.2f, 1.2f), Fall = fall, Vol = vol,
+                Rot = rng.Range(0, 6.28f), Spin = rng.Range(-1.2f, 1.2f),
             };
+            // Per layer: size, alpha, fall speed ranges and volume — far, middle, near.
+            void Pick((float, float)[] sizes, (float, float)[] alphas, (float, float)[] falls, float[] vols)
+            {
+                int l = layer;
+                f.Size = rng.Range(sizes[l].Item1, sizes[l].Item2) * scale;
+                f.Alpha = rng.Range(alphas[l].Item1, alphas[l].Item2);
+                f.Fall = rng.Range(falls[l].Item1, falls[l].Item2);
+                f.Vol = vols[l];
+            }
+            switch (Season)
+            {
+                case 1:
+                    Pick(new[] { (2.0f, 2.8f), (3.2f, 4.6f), (4.8f, 6.6f) }, new[] { (0.45f, 0.65f), (0.85f, 0.95f), (0.95f, 1f) },
+                         new[] { (16f, 24f), (24f, 38f), (34f, 50f) }, new float[] { 0, 5, 6 });
+                    f.Kind = 4;
+                    f.Tint = (byte)rng.Int(Palette.Petals.Length);
+                    f.SwayAmp = rng.Range(14, 38);
+                    f.SwayFreq = rng.Range(0.5f, 1.3f);
+                    f.Spin = rng.Range(-2.4f, 2.4f);
+                    f.FlipSpeed = rng.Range(1.5f, 4);
+                    break;
+                case 2:
+                    Pick(new[] { (3.4f, 4.6f), (5.4f, 7.2f), (8.0f, 10.5f) }, new[] { (0.45f, 0.6f), (0.75f, 0.9f), (0.9f, 1f) },
+                         new[] { (8f, 14f), (12f, 20f), (16f, 26f) }, new float[] { 0, 0, 0 });
+                    f.Kind = 7;
+                    f.SwayAmp = rng.Range(18, 44);
+                    f.SwayFreq = rng.Range(0.25f, 0.7f);
+                    f.Spin = rng.Range(-0.25f, 0.25f);
+                    f.Rot = rng.Range(-0.3f, 0.3f);
+                    break;
+                case 3:
+                    Pick(new[] { (3.6f, 5.0f), (5.6f, 8.0f), (8.6f, 11.5f) }, new[] { (0.5f, 0.7f), (0.9f, 1f), (1f, 1f) },
+                         new[] { (22f, 32f), (32f, 50f), (46f, 68f) }, new float[] { 0, 22, 26 });
+                    f.Kind = rng.Unit() < 0.5f ? (byte)5 : (byte)6;
+                    f.Tint = (byte)rng.Int(Palette.Leaves.Length);
+                    f.SwayAmp = rng.Range(30, 70);
+                    f.SwayFreq = rng.Range(0.6f, 1.25f);
+                    f.Spin = rng.Range(-0.6f, 0.6f);
+                    f.FlipSpeed = rng.Range(0.8f, 2.6f);
+                    break;
+                default:
+                    Pick(new[] { (0.7f, 1.25f), (1.3f, 2.3f), (2.3f, 4.4f) }, new[] { (0.35f, 0.6f), (0.7f, 0.95f), (0.85f, 1f) },
+                         new[] { (28f, 48f), (50f, 85f), (85f, 135f) }, new float[] { 0, 12, 14 });
+                    if (layer == 2 && f.Size > 3.0f * scale) f.Kind = (byte)(1 + rng.Int(3));
+                    break;
+            }
+            if (!anywhere && Season == 2 && rng.Unit() < 0.4f)
+            {
+                // Fluff also drifts in from the sides.
+                f.X = wind >= 0 ? -30 : W + 30;
+                f.Y = rng.Range(H * 0.1f, H * 0.8f);
+            }
             return f;
         }
 
@@ -706,15 +778,33 @@ namespace Snowdrift
                         f.Y += cursorVY * 0.35f * w * dt;
                     }
                 }
-                float vy = f.Fall * sf * (1 + 0.15f * MathF.Sin(Time * 0.9f + f.Phase * 2));
+                float vy;
+                if (f.Kind == 5 || f.Kind == 6)
+                {
+                    // A leaf swings like a pendulum: it tilts with the swing and slows at either end.
+                    float swing = MathF.Sin(Time * f.SwayFreq + f.Phase);
+                    vy = f.Fall * sf * (0.45f + 0.55f * MathF.Abs(MathF.Cos(Time * f.SwayFreq + f.Phase)));
+                    f.Rot = f.Spin * Time * 0.3f + swing * 0.7f + f.Phase;
+                }
+                else if (f.Kind == 7)
+                {
+                    // Fluff rides the air: now and then it even rises.
+                    vy = f.Fall * sf * (0.45f + 0.9f * MathF.Sin(Time * 0.23f + f.Phase));
+                    f.Rot += f.Spin * dt;
+                }
+                else
+                {
+                    vy = f.Fall * sf * (1 + 0.15f * MathF.Sin(Time * 0.9f + f.Phase * 2));
+                    f.Rot += f.Spin * dt;
+                }
+                f.Flip += f.FlipSpeed * dt;
                 float prevY = f.Y;
                 f.X += f.VX * dt;
                 f.Y += vy * dt;
-                f.Rot += f.Spin * dt;
                 if (f.X < -40) f.X += W + 80; else if (f.X > W + 40) f.X -= W + 80;
 
-                bool gone = f.Y > H + 12;
-                if (!gone && f.Layer > 0 && TryLand(f.X, f.Y, prevY, f.Vol * gain, f.Layer == 2))
+                bool gone = f.Y > H + 12 || f.Y < -80;
+                if (!gone && f.Layer > 0 && f.Vol > 0 && TryLand(f.X, f.Y, prevY, f.Vol * gain, f.Layer == 2))
                 {
                     gone = true;
                     landed++;
@@ -783,27 +873,33 @@ namespace Snowdrift
             }
         }
 
-        private void Emit(float x, float y, float vx, float vy, float vol, bool canLand = true)
+        private void Emit(float x, float y, float vx, float vy, float vol, bool canLand = true, byte? kind = null)
         {
             if (debris.Count >= 5000) return;
+            byte k = kind ?? DebrisKind(Season);
             debris.Add(new Debris
             {
                 X = x, Y = y, VX = vx, VY = vy,
                 Size = MathF.Min(3.2f, 0.8f + MathF.Sqrt(vol) * 0.32f), Vol = vol, CanLand = canLand,
+                Kind = k, Tint = (byte)rng.Int(k == 1 ? Palette.Petals.Length : Palette.Leaves.Length),
+                Rot = rng.Range(0, 6.28f), Spin = rng.Range(-6, 6),
             });
         }
 
         private void StepDebris(float dt)
         {
-            float drag = MathF.Max(0, 1 - dt * 1.1f);
             int i = 0;
             while (i < debris.Count)
             {
                 var d = debris[i];
-                d.VY += 620 * dt;
+                // Snow drops like snow; petals and leaves flutter down.
+                float gravity = d.Kind == 0 ? 620 : (d.Kind == 1 ? 140 : 230);
+                float drag = MathF.Max(0, 1 - dt * (d.Kind == 0 ? 1.1f : 2.2f));
+                d.VY += gravity * dt;
                 d.VX += (wind * 0.4f - d.VX) * MathF.Min(1, dt * 0.8f);
                 d.VX *= drag;
                 d.VY *= drag;
+                d.Rot += d.Spin * dt;
                 float prevY = d.Y;
                 d.X += d.VX * dt;
                 d.Y += d.VY * dt;
@@ -897,7 +993,7 @@ namespace Snowdrift
             }
             if (removed <= 0) return;
 
-            if (config.Tool == 1)
+            if (config.Tool == 1 && Winter)
             {
                 // Snowball mode: the swept snow is packed into a ball.
                 float packed = removed * 0.55f;
@@ -1231,42 +1327,173 @@ namespace Snowdrift
                     foreach (var o in occluders) if (o.Contains(f.X, f.Y)) { behind = true; break; }
                     if (behind) continue;
                 }
-                float hw = f.Size * 1.5f;
-                batch.Spr(Sprite.Dot, f.X, f.Y, hw, hw, 0, 1, 1, 1, f.Alpha);
+                DrawFlake(f, batch);
             }
 
             Festive.DrawFireworks(batch);
-            DrawGarland(batch);
+            if (Winter) DrawGarland(batch);
             DrawBalls(batch);
             DrawDrifts(batch);
-            Festive.DrawTree(batch);
+            Festive.DrawDecor(batch);
 
             foreach (var d in debris)
             {
-                float hw = d.Size * 1.5f;
-                batch.Spr(Sprite.Dot, d.X, d.Y, hw, hw, 0, 1, 1, 1, 0.95f);
+                if (d.Kind == 1)
+                {
+                    var c = Palette.Petals[d.Tint % Palette.Petals.Length];
+                    float hw = 2.6f + d.Size * 0.6f;
+                    batch.Spr(Sprite.Petal, d.X, d.Y, hw * MathF.Max(0.3f, MathF.Abs(MathF.Cos(d.Rot * 0.7f))), hw * 1.15f, d.Rot, c.R, c.G, c.B, 0.95f);
+                }
+                else if (d.Kind == 2)
+                {
+                    var c = Palette.Leaves[d.Tint % Palette.Leaves.Length];
+                    float hw = 4 + d.Size * 1.2f;
+                    batch.Spr(d.Tint % 2 == 0 ? Sprite.Maple : Sprite.Leaf, d.X, d.Y, hw * MathF.Max(0.3f, MathF.Abs(MathF.Cos(d.Rot * 0.6f))), hw,
+                              d.Rot, c.R, c.G, c.B, 1);
+                }
+                else
+                {
+                    float hw = d.Size * 1.5f;
+                    batch.Spr(Sprite.Dot, d.X, d.Y, hw, hw, 0, 1, 1, 1, 0.95f);
+                }
             }
             foreach (var f in flakes)
             {
                 if (f.Layer == 0) continue;
-                if (f.Kind == 0)
+                DrawFlake(f, batch);
+            }
+            Festive.DrawCreatures(batch);
+            if (config.Frost && Winter) Festive.DrawFrost(batch);
+        }
+
+        private static void DrawFlake(in Flake f, Batch batch)
+        {
+            switch (f.Kind)
+            {
+                case 0:
                 {
                     float hw = f.Size * 1.5f;
                     batch.Spr(Sprite.Dot, f.X, f.Y, hw, hw, 0, 1, 1, 1, f.Alpha);
+                    break;
                 }
-                else
+                case 1:
+                case 2:
+                case 3:
                 {
                     float hw = f.Size * 1.9f;
                     var sprite = f.Kind == 1 ? Sprite.Crystal1 : (f.Kind == 2 ? Sprite.Crystal2 : Sprite.Crystal3);
                     batch.Spr(sprite, f.X, f.Y, hw, hw, f.Rot, 1, 1, 1, f.Alpha);
+                    break;
                 }
+                case 4:
+                {
+                    var c = Palette.Petals[f.Tint % Palette.Petals.Length];
+                    batch.Spr(Sprite.Petal, f.X, f.Y, f.Size * MathF.Max(0.22f, MathF.Abs(MathF.Cos(f.Flip))), f.Size * 1.15f, f.Rot, c.R, c.G, c.B, f.Alpha);
+                    break;
+                }
+                case 5:
+                case 6:
+                {
+                    var c = Palette.Leaves[f.Tint % Palette.Leaves.Length];
+                    // Far leaves are paler, as if seen through the air.
+                    float mist = f.Layer == 0 ? 0.35f : 0;
+                    batch.Spr(f.Kind == 6 ? Sprite.Maple : Sprite.Leaf, f.X, f.Y, f.Size * MathF.Max(0.3f, MathF.Abs(MathF.Cos(f.Flip))), f.Size, f.Rot,
+                              c.R + (0.9f - c.R) * mist, c.G + (0.85f - c.G) * mist, c.B + (0.8f - c.B) * mist, f.Alpha);
+                    break;
+                }
+                default:
+                    batch.Spr(Sprite.Fluff, f.X, f.Y, f.Size, f.Size, f.Rot, 1, 1, 1, f.Alpha);
+                    break;
             }
-            if (config.Frost) Festive.DrawFrost(batch);
         }
 
         private static readonly float[] Smooth = { 1, 3, 6, 8, 6, 3, 1 };
 
         private void DrawDrifts(Batch batch)
+        {
+            if (Season == 0) DrawSnowDrifts(batch);
+            else if (Season != 2) DrawLitter(batch);
+        }
+
+        /// <summary>Smoothed, tapered height of a pile at column i (the same shape the snow drifts use).</summary>
+        private static float PileHeight(Surface s, int i)
+        {
+            int n = s.H.Length;
+            float acc = 0, wsum = 0;
+            for (int k = -3; k <= 3; k++)
+            {
+                int j = i + k;
+                if (j < 0 || j >= n || !s.Vis[j]) continue;
+                float w = Smooth[k + 3];
+                acc += s.H[j] * w;
+                wsum += w;
+            }
+            int edge = Math.Min(i, n - 1 - i);
+            float taper = s.Kind == Surface.SKind.Floor ? 1 : MathF.Min(1, 0.45f + edge * 0.11f);
+            return (wsum > 0 ? acc / wsum : s.H[i]) * taper;
+        }
+
+        /// <summary>Petals and leaves: a soft coloured bed with the pieces themselves lying on top.</summary>
+        private void DrawLitter(Batch batch)
+        {
+            bool autumn = Season == 3;
+            var top = autumn ? (0.78f, 0.42f, 0.14f) : (1.0f, 0.86f, 0.90f);
+            var low = autumn ? (0.42f, 0.21f, 0.08f) : (0.93f, 0.70f, 0.78f);
+            foreach (var s in active)
+            {
+                int n = s.H.Length;
+                if (n < 3) continue;
+                float baseY = s.Kind == Surface.SKind.Floor ? s.Y : s.Y + 1;
+                float prevH = 0;
+                bool prevOK = false;
+                for (int i = 0; i < n; i++)
+                {
+                    if (!s.Vis[i]) { prevOK = false; continue; }
+                    float hh = PileHeight(s, i);
+                    if (prevOK && (hh > 0.25f || prevH > 0.25f))
+                    {
+                        float xb = s.X0 + (i + 0.5f) * ColW, xa = xb - ColW;
+                        float aa = MathF.Min(1, prevH / 1.5f) * 0.92f, ab = MathF.Min(1, hh / 1.5f) * 0.92f;
+                        batch.Quad(batch.Flat(xa, s.Y - prevH, top.Item1, top.Item2, top.Item3, aa), batch.Flat(xb, s.Y - hh, top.Item1, top.Item2, top.Item3, ab),
+                                   batch.Flat(xa, baseY, low.Item1, low.Item2, low.Item3, aa), batch.Flat(xb, baseY, low.Item1, low.Item2, low.Item3, ab));
+                    }
+                    prevH = hh;
+                    prevOK = true;
+                }
+                // The pieces on top: a few per column, placed by a hash so they stay put from frame to frame.
+                int stride = autumn ? 3 : 2;
+                for (int i = 1; i < n - 1; i += stride)
+                {
+                    if (!s.Vis[i]) continue;
+                    float hh = PileHeight(s, i);
+                    if (hh < 0.9f) continue;
+                    int layers = autumn ? Math.Min(4, (int)(hh / 3.2f) + 1) : 1;
+                    for (int k = 0; k < layers; k++)
+                    {
+                        uint hsh = unchecked((uint)(i * 7919) ^ (uint)(s.Id * 104729) ^ (uint)(k * 1299709));
+                        float jitter = (hsh % 100) / 100f - 0.5f;
+                        float x = s.X0 + (i + 0.5f + jitter * 1.6f) * ColW;
+                        float y = s.Y - hh + 1.2f + k * 3.4f;
+                        float rot = (hsh % 628) / 100f;
+                        if (autumn)
+                        {
+                            var c = Palette.Leaves[(int)((hsh >> 8) % (uint)Palette.Leaves.Length)];
+                            float shade = 1 - k * 0.14f;
+                            float size = 4.6f + ((hsh >> 4) % 30) / 10f;
+                            batch.Spr(((hsh >> 12) % 2) == 0 ? Sprite.Maple : Sprite.Leaf, x, y, size * 0.9f, size, rot,
+                                      c.R * shade, c.G * shade, c.B * shade, 1);
+                        }
+                        else
+                        {
+                            var c = Palette.Petals[(int)((hsh >> 8) % (uint)Palette.Petals.Length)];
+                            batch.Spr(Sprite.Petal, x, y, 2.4f, 2.8f, rot, c.R, c.G, c.B, 0.95f);
+                        }
+                    }
+                }
+            }
+        }
+
+        private void DrawSnowDrifts(Batch batch)
         {
             foreach (var s in active)
             {

@@ -203,6 +203,8 @@ namespace Snowdrift
 
                 Check(!sim.DebugHasNaN() && !s2.DebugHasNaN(), "no NaN");
 
+                SeasonChecks(Check, dock);
+
                 var atlas = new Atlas();
                 int lit = 0;
                 for (int i = 3; i < atlas.Pixels.Length; i += 4) if (atlas.Pixels[i] > 0) lit++;
@@ -224,18 +226,57 @@ namespace Snowdrift
             File.WriteAllText(outPath, sb.ToString());
             return ok;
         }
+
+        /// <summary>Petals lie thin, summer fluff never settles, leaves heap up, and a new season blows the old one away.</summary>
+        private static void SeasonChecks(Action<bool, string> Check, FRect dock)
+        {
+            HashSet<long> All(HashSet<long> ids) => ids;
+            var win = new WinInfo(7, new FRect(200, 300, 800, 700));
+            Sim Make(int season)
+            {
+                var s = new Sim(1512, 982, 0, 934);
+                var cfg = SimConfig.Default;
+                cfg.Intensity = 2; cfg.Wind = 1; cfg.Drifts = 3; cfg.Garland = 0; cfg.Sparkle = false; cfg.Season = season; cfg.Evening = true;
+                s.Config = cfg;
+                s.ApplyWindows(new List<WinInfo> { win }, dock, 1, All);
+                for (int i = 0; i < 60 * 50; i++) s.Step(1f / 60, 760, 600, true);
+                return s;
+            }
+            var spring = Make(1);
+            var summer = Make(2);
+            var autumn = Make(3);
+            Check(spring.DebugStats.snow > 300 && spring.DebugMaxHeight() < 16, $"spring petals lie in a thin layer ({spring.DebugStats.snow:0}, max {spring.DebugMaxHeight():0.0})");
+            Check(summer.DebugStats.snow == 0 && summer.DebugStats.flakes > 10, $"summer fluff floats and never piles up ({summer.DebugStats.flakes} in the air)");
+            Check(autumn.DebugStats.snow > 1500, $"autumn leaves heap up on windows, the taskbar and the floor ({autumn.DebugStats.snow:0})");
+            Check(!spring.DebugHasNaN() && !summer.DebugHasNaN() && !autumn.DebugHasNaN(), "no NaN in any season");
+
+            var w = new Sim(1512, 982, 0, 934);
+            var wc = SimConfig.Default;
+            wc.Intensity = 2; wc.Drifts = 3; wc.Tool = 1; wc.Garland = 0; wc.Tree = false; wc.Sparkle = false;
+            w.Config = wc;
+            w.ApplyWindows(new List<WinInfo> { win }, dock, 1, All);
+            w.DebugAddBall(300, 860, 30);
+            for (int i = 0; i < 60 * 20; i++) w.Step(1f / 60, -500, -500, false);
+            float hadSnow = w.DebugStats.snow;
+            wc.Season = 1;
+            w.Config = wc;
+            Check(hadSnow > 1000 && w.DebugStats.snow == 0 && !w.HasBalls && w.DebugDebris > 20,
+                  $"a new season blows the old one away (snow {hadSnow:0} → {w.DebugStats.snow:0}, puffs {w.DebugDebris})");
+        }
     }
 
     /// <summary>--snapshot out.png: a minute of blizzard on a made-up desktop, rendered with Direct3D.</summary>
     internal static class Snapshot
     {
-        public static bool Run(string path)
+        public static bool Run(string path, int season = 0, bool evening = false)
         {
             const float W = 1512, H = 982, ground = 934;
             var sim = new Sim(W, H, 0, ground);
             var cfg = SimConfig.Default;
             cfg.Intensity = 2; cfg.Wind = 1; cfg.Drifts = 3; cfg.Tool = 1; cfg.Garland = 3; cfg.Frost = true;
+            cfg.Season = season; cfg.Evening = evening;
             sim.Config = cfg;
+            bool winter = season == 0;
             var windows = new List<WinInfo>
             {
                 new WinInfo(11, new FRect(820, 300, 1380, 680)),
@@ -244,17 +285,20 @@ namespace Snowdrift
             var taskbar = new FRect(0, ground, W, H);
             HashSet<long> All(HashSet<long> ids) => ids;
             sim.ApplyWindows(windows, taskbar, 1, All);
-            sim.DebugAddBall(300, 860, 30);
+            if (winter) sim.DebugAddBall(300, 860, 30);
             const float dt = 1f / 60, seconds = 75;
             int dropped = 0;
             bool fireworks = false;
             for (float t = 0; t < seconds; t += dt)
             {
+                if (!winter) dropped = 3;
                 if (dropped == 0 && t > 8) { sim.DebugAddBall(302, 720, 22); dropped = 1; }
                 if (dropped == 1 && t > 10) { sim.DebugAddBall(300, 640, 15); dropped = 2; }
                 if (dropped == 2 && t > 12) { sim.DebugAddBall(1300, 820, 18); dropped = 3; }
-                if (!fireworks && t > seconds - 4.5f) { fireworks = true; sim.Festive.LaunchFireworks(5); }
-                sim.Step(dt, -500, -500, false);
+                if (winter && !fireworks && t > seconds - 4.5f) { fireworks = true; sim.Festive.LaunchFireworks(5); }
+                // In summer evenings the cursor rests on the desktop, so the fireflies gather round it.
+                bool resting = !winter && evening;
+                sim.Step(dt, resting ? 1050 : -500, resting ? 800 : -500, resting);
             }
 
             using var renderer = Renderer.Create(true);
@@ -268,7 +312,8 @@ namespace Snowdrift
             {
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 g.ScaleTransform(scale, scale);
-                using (var bg = new LinearGradientBrush(new PointF(0, 0), new PointF(0, H), Color.FromArgb(26, 33, 77), Color.FromArgb(84, 77, 140)))
+                using (var bg = evening ? new LinearGradientBrush(new PointF(0, 0), new PointF(0, H), Color.FromArgb(5, 8, 20), Color.FromArgb(20, 26, 51))
+                                        : new LinearGradientBrush(new PointF(0, 0), new PointF(0, H), Color.FromArgb(26, 33, 77), Color.FromArgb(84, 77, 140)))
                     g.FillRectangle(bg, 0, 0, W, H);
                 for (int i = windows.Count - 1; i >= 0; i--)
                 {

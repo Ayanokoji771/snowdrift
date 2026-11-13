@@ -68,6 +68,11 @@ namespace Snowdrift
                 Place(Sprite.TopHat, 160, 160, DrawTopHat);
                 Place(Sprite.Scarf, 224, 128, DrawScarf);
                 Place(Sprite.Frost, 256, 256, DrawFrost);
+                Place(Sprite.Petal, 64, 64, DrawPetal);
+                Place(Sprite.Leaf, 96, 96, DrawLeaf);
+                Place(Sprite.Maple, 128, 128, DrawMaple);
+                Place(Sprite.Fluff, 64, 64, DrawFluff);
+                Place(Sprite.Wing, 128, 128, DrawWing);
             }
 
             Pixels = new byte[Size * Size * 4];
@@ -517,5 +522,159 @@ namespace Snowdrift
             g.Restore(st2);
             return bmp;
         }
+
+        // ---- Seasons ----
+
+        private static Pen RoundPen(C c, float width) => new Pen(c.ToColor(), width) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+
+        /// <summary>A cherry-blossom petal: base at the bottom, a little notch at the tip.</summary>
+        public static void DrawPetal(Graphics g, float w, float h)
+        {
+            using var pb = new PathBuilder();
+            pb.Move(w * 0.5f, h * 0.95f)
+              .Cubic(w * 0.02f, h * 0.74f, w * 0.06f, h * 0.14f, w * 0.40f, h * 0.10f)
+              .Line(w * 0.5f, h * 0.22f)
+              .Line(w * 0.60f, h * 0.10f)
+              .Cubic(w * 0.94f, h * 0.14f, w * 0.98f, h * 0.74f, w * 0.5f, h * 0.95f)
+              .Close();
+            var state = g.Save();
+            ClipPath(g, pb.Path);
+            Radial(g, new[] { Cc(1, 1, 1, 1), Cc(0.97f, 0.97f, 0.97f, 1), Cc(0.80f, 0.80f, 0.80f, 1) }, new[] { 0, 0.55f, 1 },
+                   new PointF(w * 0.5f, h * 0.32f), new PointF(w * 0.5f, h * 0.4f), h * 0.62f);
+            using (var pen = RoundPen(Cc(0.86f, 0.86f, 0.86f, 0.7f), 1.2f))
+            {
+                foreach (float dx in new[] { -0.12f, 0f, 0.12f })
+                {
+                    using var v = new PathBuilder();
+                    v.Move(w * 0.5f, h * 0.9f).Quad(w * (0.5f + dx), h * 0.6f, w * (0.5f + dx * 1.6f), h * 0.3f);
+                    g.DrawPath(pen, v.Path);
+                }
+            }
+            g.Restore(state);
+        }
+
+        /// <summary>An oval leaf with veins and a short stalk, tip up.</summary>
+        public static void DrawLeaf(Graphics g, float w, float h)
+        {
+            using var pb = new PathBuilder();
+            pb.Move(w * 0.5f, h * 0.05f)
+              .Cubic(w * 0.98f, h * 0.30f, w * 0.82f, h * 0.76f, w * 0.5f, h * 0.84f)
+              .Cubic(w * 0.18f, h * 0.76f, w * 0.02f, h * 0.30f, w * 0.5f, h * 0.05f)
+              .Close();
+            var state = g.Save();
+            ClipPath(g, pb.Path);
+            Linear(g, new RectangleF(0, 0, w, h), new[] { Cc(1, 1, 1, 1), Cc(0.90f, 0.90f, 0.90f, 1), Cc(0.74f, 0.74f, 0.74f, 1) }, new[] { 0, 0.55f, 1 },
+                   new PointF(w * 0.2f, h * 0.1f), new PointF(w * 0.8f, h * 0.85f));
+            using (var main = RoundPen(Cc(0.6f, 0.6f, 0.6f, 0.85f), w * 0.028f))
+                g.DrawLine(main, w * 0.5f, h * 0.86f, w * 0.5f, h * 0.1f);
+            using (var side = RoundPen(Cc(0.6f, 0.6f, 0.6f, 0.85f), w * 0.014f))
+            {
+                for (int k = 1; k <= 4; k++)
+                {
+                    float y = h * (0.78f - k * 0.14f);
+                    foreach (float sd in new[] { -1f, 1f })
+                    {
+                        using var v = new PathBuilder();
+                        v.Move(w * 0.5f, y).Quad(w * (0.5f + sd * 0.15f), y - h * 0.02f, w * (0.5f + sd * 0.3f), y - h * 0.12f);
+                        g.DrawPath(side, v.Path);
+                    }
+                }
+            }
+            g.Restore(state);
+            using var stalk = RoundPen(Cc(0.55f, 0.55f, 0.55f, 1), w * 0.035f);
+            using var sp = new PathBuilder();
+            sp.Move(w * 0.5f, h * 0.82f).Quad(w * 0.5f, h * 0.92f, w * 0.54f, h * 0.98f);
+            g.DrawPath(stalk, sp.Path);
+        }
+
+        /// <summary>A five-lobed maple leaf, tip up.</summary>
+        public static void DrawMaple(Graphics g, float w, float h)
+        {
+            float cx = w * 0.5f, cy = h * 0.56f, R = w * 0.46f;
+            const int steps = 240;
+            var pts = new PointF[steps];
+            for (int i = 0; i < steps; i++)
+            {
+                float t = (float)i / steps * 2 * MathF.PI;   // 0 = straight up
+                float r = 0.42f + 0.58f * MathF.Pow(MathF.Abs(MathF.Cos(t * 2.5f)), 2.2f);
+                r *= 0.74f + 0.26f * MathF.Cos(t);              // lower lobes are smaller
+                r *= 1 + 0.07f * MathF.Sin(t * 15);              // little teeth
+                if (MathF.Abs(t - MathF.PI) < 0.22f) r *= 0.55f; // notch for the stalk
+                pts[i] = new PointF(cx + MathF.Sin(t) * R * r, cy - MathF.Cos(t) * R * r);
+            }
+            using var path = new GraphicsPath();
+            path.AddPolygon(pts);
+            var state = g.Save();
+            ClipPath(g, path);
+            Radial(g, new[] { Cc(1, 1, 1, 1), Cc(0.92f, 0.92f, 0.92f, 1), Cc(0.76f, 0.76f, 0.76f, 1) }, new[] { 0, 0.6f, 1 },
+                   new PointF(cx, cy), new PointF(cx, cy), R);
+            using (var vein = RoundPen(Cc(0.62f, 0.62f, 0.62f, 0.85f), w * 0.018f))
+            {
+                for (int k = 0; k < 5; k++)
+                {
+                    float t = k / 5f * 2 * MathF.PI;
+                    float reach = R * (0.74f + 0.26f * MathF.Cos(t)) * 0.92f;
+                    g.DrawLine(vein, cx, cy, cx + MathF.Sin(t) * reach, cy - MathF.Cos(t) * reach);
+                }
+            }
+            g.Restore(state);
+            using var stalk = RoundPen(Cc(0.55f, 0.55f, 0.55f, 1), w * 0.03f);
+            using var sp = new PathBuilder();
+            sp.Move(cx, cy).Quad(cx, h * 0.85f, cx + w * 0.05f, h * 0.98f);
+            g.DrawPath(stalk, sp.Path);
+        }
+
+        /// <summary>A dandelion seed: a feathery parachute on a thin stalk.</summary>
+        public static void DrawFluff(Graphics g, float w, float h)
+        {
+            var top = new PointF(w * 0.5f, h * 0.34f);
+            using var hair = RoundPen(Cc(1, 1, 1, 0.85f), 1.1f);
+            using var tip = new SolidBrush(Cc(1, 1, 1, 0.8f).ToColor());
+            for (int k = 0; k < 17; k++)
+            {
+                float a = -MathF.PI + k / 16f * MathF.PI;
+                float len = w * 0.30f * (0.85f + 0.15f * MathF.Sin(k * 1.7f));
+                var end = new PointF(top.X + MathF.Cos(a) * len, top.Y + MathF.Sin(a) * len * 0.85f);
+                g.DrawLine(hair, top, end);
+                g.FillEllipse(tip, end.X - 1.3f, end.Y - 1.3f, 2.6f, 2.6f);
+            }
+            using var stalk = RoundPen(Cc(0.92f, 0.92f, 0.92f, 0.9f), 1.3f);
+            g.DrawLine(stalk, top.X, top.Y, w * 0.5f, h * 0.80f);
+            using var seed = new SolidBrush(Cc(0.72f, 0.72f, 0.72f, 1).ToColor());
+            g.FillEllipse(seed, w * 0.47f, h * 0.78f, w * 0.06f, h * 0.14f);
+        }
+
+        /// <summary>The right wings of a butterfly (the body runs along the left edge), with a dark rim and pale spots.</summary>
+        public static void DrawWing(Graphics g, float w, float h)
+        {
+            using var upper = new PathBuilder();
+            upper.Move(w * 0.04f, h * 0.48f)
+                 .Cubic(w * 0.20f, h * 0.10f, w * 0.62f, h * 0.02f, w * 0.92f, h * 0.10f)
+                 .Cubic(w * 1.02f, h * 0.30f, w * 0.70f, h * 0.56f, w * 0.06f, h * 0.52f)
+                 .Close();
+            using var lower = new PathBuilder();
+            lower.Move(w * 0.05f, h * 0.52f)
+                 .Cubic(w * 0.56f, h * 0.52f, w * 0.82f, h * 0.74f, w * 0.66f, h * 0.92f)
+                 .Cubic(w * 0.44f, h * 1.02f, w * 0.16f, h * 0.80f, w * 0.06f, h * 0.56f)
+                 .Close();
+            foreach (var (path, centre) in new[] { (upper.Path, new PointF(w * 0.4f, h * 0.3f)), (lower.Path, new PointF(w * 0.32f, h * 0.66f)) })
+            {
+                var state = g.Save();
+                ClipPath(g, path);
+                Radial(g, new[] { Cc(1, 1, 1, 1), Cc(0.95f, 0.95f, 0.95f, 1), Cc(0.62f, 0.62f, 0.62f, 1) }, new[] { 0, 0.6f, 1 }, centre, centre, w * 0.55f);
+                using (var vein = new Pen(Cc(0.72f, 0.72f, 0.72f, 0.6f).ToColor(), 1.2f))
+                {
+                    for (int k = 0; k < 4; k++)
+                        g.DrawLine(vein, w * 0.05f, h * 0.5f, centre.X + (k - 1) * w * 0.18f, centre.Y + (centre.Y < h * 0.5f ? -h * 0.25f : h * 0.22f));
+                }
+                g.Restore(state);
+                using var rim = new Pen(Cc(0.28f, 0.28f, 0.28f, 1).ToColor(), w * 0.045f);
+                g.DrawPath(rim, path);
+            }
+            using var spot = new SolidBrush(Cc(1, 1, 1, 0.95f).ToColor());
+            foreach (var (x, y, r) in new[] { (0.80f, 0.16f, 0.025f), (0.70f, 0.12f, 0.02f), (0.86f, 0.26f, 0.02f), (0.58f, 0.82f, 0.02f), (0.48f, 0.88f, 0.018f) })
+                g.FillEllipse(spot, w * (x - r), h * (y - r), w * r * 2, h * r * 2);
+        }
     }
+
 }

@@ -10,6 +10,8 @@ namespace Snowdrift
         BallBase, BallTex, Glow, Bulb,
         Coal, Carrot, Twig, Bucket, TopHat, Scarf,
         Frost,
+        // Spring, summer and autumn. Painted in white and greys so each can be tinted any colour.
+        Petal, Leaf, Maple, Fluff, Wing,
         Count,
     }
 

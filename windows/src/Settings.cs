@@ -49,6 +49,8 @@ namespace Snowdrift
         /// <summary>1.1.0–1.1.2 suggested turning Windows' own touchpad swipes off for their gestures (since removed).</summary>
         public bool GesturesTipShown { get; set; } = false;
         public bool GesturesRemovedNoticeShown { get; set; } = false;
+        /// <summary>-1 follows the calendar; 0 winter, 1 spring, 2 summer, 3 autumn.</summary>
+        public int Season { get; set; } = -1;
         /// <summary>Install new versions on their own (restarting while the computer is idle).</summary>
         public bool AutoUpdate { get; set; } = true;
         /// <summary>Ask GitHub once a day whether a new version is out.</summary>
@@ -91,6 +93,7 @@ namespace Snowdrift
             D.FullScreenMode = Math.Clamp(D.FullScreenMode, 0, 2);
             D.FlakeSize = Math.Clamp(D.FlakeSize, 0, 2);
             D.SnowWhere = Math.Clamp(D.SnowWhere, 0, 1);
+            D.Season = Math.Clamp(D.Season, -1, 3);
             D.HiddenApps ??= new Dictionary<string, string>();
             D.ShownApps ??= new Dictionary<string, string>();
         }

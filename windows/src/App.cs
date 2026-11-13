@@ -185,11 +185,14 @@ namespace Snowdrift
         private void ApplySettings()
         {
             var d = D;
+            int season = Seasons.Resolve(d.Season);
+            Seasons.Current = season;
+            evening = Seasons.IsEvening();
             var config = new SimConfig
             {
                 Intensity = d.Intensity, Wind = d.Wind, Drifts = d.Drifts, Tool = d.Tool, Garland = d.Garland,
                 Depth = d.Depth, LowPower = EnergySaver(), FlakeSize = d.FlakeSize, Melt = d.Melt, Tree = d.Tree,
-                Frost = d.Frost, Sparkle = d.Sparkle,
+                Frost = d.Frost, Sparkle = d.Sparkle, Season = season, Evening = evening,
             };
             foreach (var o in overlays)
             {
@@ -237,6 +240,11 @@ namespace Snowdrift
         private void Shovel()
         {
             foreach (var o in overlays) o.Sim.ClearSnow();
+        }
+
+        private void RemoveSnowmen()
+        {
+            foreach (var o in overlays) o.Sim.ClearBalls();
         }
 
         private void Fireworks()
@@ -463,8 +471,17 @@ namespace Snowdrift
         }
 
         /// <summary>Once a second: timed pause, snowflake counter, New Year fireworks, the daily update check.</summary>
+        private bool evening;
+        private int seasonCheck;
+
         private void Tick()
         {
+            // Every half minute: has the season (or evening) changed?
+            if (++seasonCheck >= 30)
+            {
+                seasonCheck = 0;
+                if (Seasons.Resolve(D.Season) != Seasons.Current || Seasons.IsEvening() != evening) ApplySettings();
+            }
             if (D.CheckUpdates && !checkingUpdates && DateTimeOffset.UtcNow.ToUnixTimeSeconds() - D.LastUpdateCheck > 24 * 3600)
                 CheckForUpdates(false);
             // A downloaded update starts once nobody has touched the computer for three minutes
@@ -513,7 +530,7 @@ namespace Snowdrift
             hotkeyWindow.AddHook(HotkeyHook);
             var keys = new (char key, Action action)[]
             {
-                ('S', ToggleEnabled), ('A', ToggleDesktopOnly), ('H', ToggleFrontApp), ('D', Shovel), ('F', Fireworks),
+                ('S', ToggleEnabled), ('A', ToggleDesktopOnly), ('H', ToggleFrontApp), ('D', Shovel), ('F', Fireworks), ('X', RemoveSnowmen),
             };
             int id = 1;
             foreach (var (key, action) in keys)
@@ -647,20 +664,32 @@ namespace Snowdrift
                          d.FullScreenMode, v => Change(x => x.FullScreenMode = v)));
             m.Add(new WF.ToolStripSeparator());
 
-            m.Add(Choice(L("Снегопад", "Snowfall"),
-                         new[] { L("Лёгкий снег", "Light snow"), L("Ровный снегопад", "Steady snowfall"), L("Метель", "Blizzard") },
+            int season = Seasons.Resolve(d.Season);
+            bool winter = season == 0;
+            m.Add(SeasonsSubmenu(season));
+            m.Add(new WF.ToolStripSeparator());
+
+            string fallTitle = new[] { L("Снегопад", "Snowfall"), L("Лепестки", "Petals"), L("Пух одуванчиков", "Dandelion fluff"), L("Листопад", "Falling leaves") }[season];
+            m.Add(Choice(fallTitle,
+                         winter ? new[] { L("Лёгкий снег", "Light snow"), L("Ровный снегопад", "Steady snowfall"), L("Метель", "Blizzard") }
+                                : new[] { L("Немного", "A little"), L("Как обычно", "As usual"), L("Много", "A lot") },
                          d.Intensity, v => Change(x => x.Intensity = v)));
-            m.Add(Choice(L("Снежинки", "Snowflakes"), new[] { L("Мелкие", "Small"), L("Обычные", "Normal"), L("Крупные", "Large") },
+            m.Add(Choice(winter ? L("Снежинки", "Snowflakes") : L("Размер", "Size"), new[] { L("Мелкие", "Small"), L("Обычные", "Normal"), L("Крупные", "Large") },
                          d.FlakeSize, v => Change(x => x.FlakeSize = v)));
             m.Add(Choice(L("Ветер", "Wind"),
                          new[] { L("← Сильный", "← Strong"), L("← Слабый", "← Light"), L("Штиль", "Calm"), L("Слабый →", "Light →"), L("Сильный →", "Strong →") },
                          d.Wind + 2, v => Change(x => x.Wind = v - 2)));
-            m.Add(Choice(L("Сугробы", "Drifts"),
-                         new[] { L("Без сугробов", "No drifts"), L("Низкие", "Low"), L("Средние", "Medium"), L("Высокие", "High") },
-                         d.Drifts, v => Change(x => x.Drifts = v)));
+            if (season != 2)
+            {
+                string pileTitle = new[] { L("Сугробы", "Drifts"), L("Лепестки на окнах", "Petals on windows"), "", L("Листья на окнах", "Leaves on windows") }[season];
+                m.Add(Choice(pileTitle,
+                             new[] { winter ? L("Без сугробов", "No drifts") : L("Не копятся", "None"), L("Немного", "A little"), L("Средне", "Medium"), L("Много", "A lot") },
+                             d.Drifts, v => Change(x => x.Drifts = v)));
+            }
             m.Add(Choice(L("Курсор", "Cursor"),
-                         new[] { L("Варежка — сметает снег", "Mitten — sweeps snow"), L("Снежки — катает шары", "Snowballs — rolls balls"),
-                                 L("Не трогает снег", "Leaves snow alone") },
+                         new[] { winter ? L("Варежка — сметает снег", "Mitten — sweeps snow") : L("Варежка — разметает", "Mitten — sweeps"),
+                                 winter ? L("Снежки — катает шары", "Snowballs — rolls balls") : L("Снежки — только зимой", "Snowballs — winter only"),
+                                 L("Ничего не трогает", "Leaves things alone") },
                          d.Tool, v => Change(x => x.Tool = v)));
             m.Add(new WF.ToolStripSeparator());
 
@@ -674,22 +703,26 @@ namespace Snowdrift
             festive.DropDownItems.Add(Item(L("Запустить салют 🎆", "Launch fireworks 🎆"), Fireworks, false, "Ctrl+Alt+F"));
             festive.DropDownItems.Add(Item(L("Салют в новогоднюю полночь", "Fireworks at New Year's midnight"), () => Change(x => x.NewYearFireworks = !x.NewYearFireworks), d.NewYearFireworks));
             festive.DropDownItems.Add(new WF.ToolStripSeparator());
-            festive.DropDownItems.Add(Item(L("Ёлка в углу экрана", "Christmas tree in the corner"), () => Change(x => x.Tree = !x.Tree), d.Tree));
+            festive.DropDownItems.Add(Info(L("Зимой:", "In winter:")));
             festive.DropDownItems.Add(Choice(L("Гирлянда", "Garland"),
                 new[] { L("Выключена", "Off"), L("Горит", "Steady"), L("Мерцает", "Twinkle"), L("Бегущие огни", "Chasing") },
                 d.Garland, v => Change(x => x.Garland = v)));
             festive.DropDownItems.Add(Item(L("Иней по углам экрана", "Frost in the screen corners"), () => Change(x => x.Frost = !x.Frost), d.Frost));
             festive.DropDownItems.Add(Item(L("Искрящийся снег", "Sparkling snow"), () => Change(x => x.Sparkle = !x.Sparkle), d.Sparkle));
             m.Add(festive);
-            m.Add(Item(L("Оттепель — снег понемногу тает", "Thaw — snow slowly melts"), () => Change(x => x.Melt = !x.Melt), d.Melt));
-            m.Add(Item(L("Дальний снег за окнами", "Distant snow behind windows"), () => Change(x => x.Depth = !x.Depth), d.Depth));
+            m.Add(Item(winter ? L("Оттепель — снег понемногу тает", "Thaw — snow slowly melts") : L("Ветер понемногу уносит всё с окон", "The wind slowly clears the windows"),
+                       () => Change(x => x.Melt = !x.Melt), d.Melt));
+            m.Add(Item(winter ? L("Дальний снег за окнами", "Distant snow behind windows") : L("Дальние за окнами", "Distant ones behind windows"),
+                       () => Change(x => x.Depth = !x.Depth), d.Depth));
             m.Add(new WF.ToolStripSeparator());
 
-            m.Add(Item(L("Убрать весь снег", "Shovel all snow"), Shovel, false, "Ctrl+Alt+D"));
+            string shovelTitle = new[] { L("Убрать весь снег", "Shovel all snow"), L("Смести все лепестки", "Sweep away all petals"),
+                                         L("Убрать всё с окон", "Clear the windows"), L("Смести все листья", "Sweep away all leaves") }[season];
+            m.Add(Item(shovelTitle, Shovel, false, "Ctrl+Alt+D"));
             bool anyBalls = false;
             foreach (var o in overlays) if (o.Sim.HasBalls) anyBalls = true;
             if (anyBalls)
-                m.Add(Item(L("Убрать снежки и снеговиков", "Remove snowballs and snowmen"), () => { foreach (var o in overlays) o.Sim.ClearBalls(); }));
+                m.Add(Item(L("Убрать снежки и снеговиков", "Remove snowballs and snowmen"), RemoveSnowmen, false, "Ctrl+Alt+X"));
             m.Add(Item(L("Как слепить снеговика…", "How to build a snowman…"), ShowHelp));
             m.Add(new WF.ToolStripSeparator());
 
@@ -721,6 +754,32 @@ namespace Snowdrift
         {
             try { Process.Start(new ProcessStartInfo("ms-settings:devices-touchpad") { UseShellExecute = true }); }
             catch (Exception e) { Log.Write("Touchpad settings: " + e.Message); }
+        }
+
+        /// <summary>The season: by the calendar or fixed, the decoration in the corner, and what each season brings.</summary>
+        private WF.ToolStripMenuItem SeasonsSubmenu(int now)
+        {
+            var d = D;
+            var item = new WF.ToolStripMenuItem(L($"Время года — {Seasons.Name(now)}", $"Season — {Seasons.Name(now)}"));
+            var items = item.DropDownItems;
+            items.Add(Item(L($"Само по календарю (сейчас {Seasons.Name(Seasons.Now())})", $"By the calendar (now {Seasons.Name(Seasons.Now())})"),
+                           () => Change(x => x.Season = -1), d.Season < 0));
+            items.Add(new WF.ToolStripSeparator());
+            for (int k = 0; k < 4; k++)
+            {
+                int season = k;
+                items.Add(Item(Seasons.Name(season), () => Change(x => x.Season = season), d.Season == season));
+            }
+            items.Add(new WF.ToolStripSeparator());
+            string decor = new[] { L("Ёлка в углу экрана", "Christmas tree in the corner"), L("Сакура в углу экрана", "Cherry tree in the corner"),
+                                   L("Подсолнухи в углу экрана", "Sunflowers in the corner"), L("Тыквы в углу экрана", "Pumpkins in the corner") }[now];
+            items.Add(Item(decor, () => Change(x => x.Tree = !x.Tree), d.Tree));
+            items.Add(new WF.ToolStripSeparator());
+            items.Add(Info(L("❄️ Зима — снег, снеговики, ёлка, гирлянда", "❄️ Winter — snow, snowmen, a tree, a garland")));
+            items.Add(Info(L("🌸 Весна — лепестки сакуры и бабочки", "🌸 Spring — cherry petals and butterflies")));
+            items.Add(Info(L("☀️ Лето — пух, подсолнухи, светлячки вечером", "☀️ Summer — fluff, sunflowers, fireflies at night")));
+            items.Add(Info(L("🍂 Осень — листопад и тыквы со свечкой", "🍂 Autumn — falling leaves and lit pumpkins")));
+            return item;
         }
 
         private static SD.Image AppIcon(string path)
@@ -842,6 +901,9 @@ Ctrl+Alt+A — прятать снег над всеми приложениям�
 Ctrl+Alt+H — спрятать или вернуть снег над текущим приложением
 Ctrl+Alt+D — убрать весь снег
 Ctrl+Alt+F — салют
+Ctrl+Alt+X — убрать всех снеговиков и снежки
+
+Времена года: зимой снег, весной лепестки сакуры и бабочки, летом пух одуванчиков, подсолнухи и светлячки по вечерам, осенью листопад и тыквы. Сезон меняется сам по календарю или выбирается в меню «Время года».
 
 Снежный остров 🎵: когда играет музыка (Spotify, браузер, любой плеер), вверху экрана появляется остров — наведите на него курсор.
 
@@ -858,6 +920,9 @@ Ctrl+Alt+A — hide snow over all apps (snow only on the desktop)
 Ctrl+Alt+H — hide or bring back snow over the current app
 Ctrl+Alt+D — shovel all snow
 Ctrl+Alt+F — fireworks
+Ctrl+Alt+X — remove all snowmen and snowballs
+
+Seasons: snow in winter, cherry petals and butterflies in spring, dandelion fluff, sunflowers and evening fireflies in summer, falling leaves and pumpkins in autumn. The season follows the calendar or can be picked under Season.
 
 Snow island 🎵: while music plays (Spotify, a browser, any player) an island appears at the top of the screen — hover over it.
 

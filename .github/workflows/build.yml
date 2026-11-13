@@ -49,6 +49,12 @@ jobs:
           Get-Content snapshot.png.error.txt -ErrorAction SilentlyContinue
           Start-Process -FilePath out/x64/Snowdrift.exe -ArgumentList '--island-preview','island.png' -Wait
           Get-Content island.png.error.txt -ErrorAction SilentlyContinue
+          foreach ($n in 1, 2, 3) {
+            Start-Process -FilePath out/x64/Snowdrift.exe -ArgumentList '--snapshot',"season$n.png",'--season',"$n" -Wait
+            Get-Content "season$n.png.txt" -ErrorAction SilentlyContinue
+            Get-Content "season$n.png.error.txt" -ErrorAction SilentlyContinue
+          }
+          Start-Process -FilePath out/x64/Snowdrift.exe -ArgumentList '--snapshot','summer-evening.png','--season','2','--evening' -Wait
 
       - name: Live run on the desktop
         shell: pwsh
@@ -102,6 +108,8 @@ jobs:
             snapshot.png
             snapshot.png.txt
             island.png
+            season*.png
+            summer-evening.png
             live/
             update.txt
             *.error.txt

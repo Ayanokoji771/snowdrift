@@ -316,7 +316,7 @@ namespace Snowdrift
             dc.DrawGeometry(null, new Pen(rim, 1), geo);
 
             double iceA = Math.Max(ec, wc);
-            if (iceA > 0.01)
+            if (iceA > 0.01 && Seasons.Current == 0)
             {
                 double iw = Math.Max(10, bodyW - Lerp(26, 64, ec));
                 var area = new Rect(body.X + (bodyW - iw) / 2, bodyH, iw, Lerp(22, 60, ec));
@@ -561,18 +561,38 @@ namespace Snowdrift
         private static double Frac(double x) => x - Math.Floor(x);
         private static double Hash(int i, double k) => Frac(Math.Sin(i * 12.9898 + k * 78.233) * 43758.5453);
 
-        /// <summary>Slow snowfall inside the open island.</summary>
+        private static readonly Color[] SpringColors = { Color.FromRgb(255, 199, 219), Color.FromRgb(255, 173, 204) };
+        private static readonly Color[] AutumnColors = { Color.FromRgb(245, 143, 31), Color.FromRgb(224, 77, 26), Color.FromRgb(250, 194, 46) };
+
+        /// <summary>Slow snowfall inside the open island — or petals, fireflies or leaves, by season.</summary>
         private void InnerSnow(DrawingContext dc, Rect area)
         {
+            int season = Seasons.Current;
             for (int i = 0; i < 36; i++)
             {
-                double speed = 7 + Hash(i, 1) * 15;
+                double speed = season == 2 ? 3 + Hash(i, 1) * 5 : 7 + Hash(i, 1) * 15;
                 double r = 0.6 + Hash(i, 2) * 1.5;
                 double span = area.Height + 10;
                 double y = area.Y + (Hash(i, 3) * span + time * speed) % span - 5;
                 double x = area.X + Hash(i, 4) * area.Width + Math.Sin(time * (0.5 + Hash(i, 5)) + i) * 7;
                 double a = 0.1 + Hash(i, 6) * 0.35;
-                dc.DrawEllipse(B(Colors.White, a), null, new Point(x, y), r, r);
+                if (season == 1 || season == 3)
+                {
+                    var palette = season == 1 ? SpringColors : AutumnColors;
+                    dc.PushTransform(new RotateTransform((time * (Hash(i, 7) - 0.5) * 3 + i) * 180 / Math.PI, x, y));
+                    dc.DrawEllipse(B(palette[i % palette.Length], 0.35 + a), null, new Point(x, y), r * 1.6, r * 0.8);
+                    dc.Pop();
+                }
+                else if (season == 2)
+                {
+                    double glow = Math.Max(0, Math.Sin(time * (1.2 + Hash(i, 8)) + i));
+                    dc.DrawEllipse(B(Color.FromRgb(191, 255, 89), 0.25 * glow), null, new Point(x, y), 3 + glow * 4, 3 + glow * 4);
+                    dc.DrawEllipse(B(Color.FromRgb(255, 255, 179), 0.3 + 0.7 * glow), null, new Point(x, y), 1, 1);
+                }
+                else
+                {
+                    dc.DrawEllipse(B(Colors.White, a), null, new Point(x, y), r, r);
+                }
             }
         }
 
