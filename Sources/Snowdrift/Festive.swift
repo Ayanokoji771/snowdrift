@@ -21,8 +21,9 @@ final class Festive {
     private(set) var season: Season = .winter
     private var evening = false
     private var occluders: [FRect] = []
+    private var creatures = true
 
-    func step(dt: Float, season: Season, showDecor: Bool, evening: Bool, cursorX: Float?, cursorY: Float, occluders: [FRect]) {
+    func step(dt: Float, season: Season, showDecor: Bool, evening: Bool, creatures: Bool, cursorX: Float?, cursorY: Float, occluders: [FRect]) {
         time += dt
         if season != self.season {
             // The old decoration goes at once; the new one fades in.
@@ -33,6 +34,11 @@ final class Festive {
         }
         self.evening = evening
         self.occluders = occluders
+        if !creatures && (!butterflies.isEmpty || !fireflies.isEmpty) {
+            butterflies.removeAll()
+            fireflies.removeAll()
+        }
+        self.creatures = creatures
         stepFireworks(dt: dt)
         var free = true
         for o in occluders where o.x0 < treeBox.x1 && o.x1 > treeBox.x0 && o.y0 < treeBox.y1 && o.y1 > treeBox.y0 {
@@ -589,7 +595,7 @@ final class Festive {
     private var nextButterfly: Float = 2
 
     private func stepButterflies(dt: Float, cursorX: Float?, cursorY: Float) {
-        let welcome = (season == .spring || season == .summer) && !evening
+        let welcome = creatures && (season == .spring || season == .summer) && !evening
         if welcome && time > nextButterfly && butterflies.count < 3 {
             let fromLeft = rng.unit() < 0.5
             butterflies.append(Butterfly(x: fromLeft ? -20 : W + 20, baseY: rng.range(H * 0.25, H * 0.75), y: 0,
@@ -640,7 +646,7 @@ final class Festive {
     private var fireflies: [Firefly] = []
 
     private func stepFireflies(dt: Float, cursorX: Float?, cursorY: Float) {
-        let wanted = season == .summer && evening ? max(12, Int(W * H / 45_000)) : 0
+        let wanted = creatures && season == .summer && evening ? max(12, Int(W * H / 45_000)) : 0
         if fireflies.count < wanted && rng.unit() < dt * 3 {
             fireflies.append(Firefly(x: rng.range(0, W), y: rng.range(H * 0.35, H * 0.95), vx: 0, vy: 0,
                                      phase: rng.range(0, 6.28), speed: rng.range(1.2, 2.6)))

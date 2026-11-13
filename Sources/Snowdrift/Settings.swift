@@ -36,6 +36,7 @@ final class Settings {
             "checkUpdates": true,
             "autoUpdate": true,
             "season": -1,
+            "creatures": true,
         ])
         // Older builds had an on/off switch for full screen.
         if d.object(forKey: "fullScreenMode") == nil, d.object(forKey: "hideInFullScreen") != nil {
@@ -195,6 +196,12 @@ final class Settings {
     var season: Int {
         get { min(3, max(-1, d.integer(forKey: "season"))) }
         set { set(newValue, "season") }
+    }
+
+    /// Butterflies (spring and summer days) and fireflies (summer evenings).
+    var creatures: Bool {
+        get { d.bool(forKey: "creatures") }
+        set { set(newValue, "creatures") }
     }
 
     /// Install new versions on their own (restarting while the Mac is idle).

@@ -192,7 +192,7 @@ namespace Snowdrift
             {
                 Intensity = d.Intensity, Wind = d.Wind, Drifts = d.Drifts, Tool = d.Tool, Garland = d.Garland,
                 Depth = d.Depth, LowPower = EnergySaver(), FlakeSize = d.FlakeSize, Melt = d.Melt, Tree = d.Tree,
-                Frost = d.Frost, Sparkle = d.Sparkle, Season = season, Evening = evening,
+                Frost = d.Frost, Sparkle = d.Sparkle, Season = season, Evening = evening, Creatures = d.Creatures,
             };
             foreach (var o in overlays)
             {
@@ -774,6 +774,7 @@ namespace Snowdrift
             string decor = new[] { L("Ёлка в углу экрана", "Christmas tree in the corner"), L("Сакура в углу экрана", "Cherry tree in the corner"),
                                    L("Подсолнухи в углу экрана", "Sunflowers in the corner"), L("Тыквы в углу экрана", "Pumpkins in the corner") }[now];
             items.Add(Item(decor, () => Change(x => x.Tree = !x.Tree), d.Tree));
+            items.Add(Item(L("Бабочки и светлячки", "Butterflies and fireflies"), () => Change(x => x.Creatures = !x.Creatures), d.Creatures));
             items.Add(new WF.ToolStripSeparator());
             items.Add(Info(L("❄️ Зима — снег, снеговики, ёлка, гирлянда", "❄️ Winter — snow, snowmen, a tree, a garland")));
             items.Add(Info(L("🌸 Весна — лепестки сакуры и бабочки", "🌸 Spring — cherry petals and butterflies")));

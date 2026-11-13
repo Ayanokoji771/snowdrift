@@ -25,6 +25,8 @@ struct SimConfig: Equatable {
     var season = 0
     /// Evening or night (fireflies).
     var evening = false
+    /// Butterflies and fireflies.
+    var creatures = true
 }
 
 struct Flake {
@@ -553,7 +555,7 @@ final class Sim {
         stepDebris(dt: dt)
         relax()
         stepBalls(dt: dt, cursorSpeed: cursorSpeed)
-        festive.step(dt: dt, season: season, showDecor: config.tree, evening: config.evening,
+        festive.step(dt: dt, season: season, showDecor: config.tree, evening: config.evening, creatures: config.creatures,
                      cursorX: cursorInside ? cx : nil, cursorY: cy, occluders: occluders)
         if config.melt { melt(dt: dt) }
 

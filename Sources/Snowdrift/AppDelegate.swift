@@ -254,7 +254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                tool: settings.tool, garland: settings.garland, depth: settings.depth,
                                lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled, flakeSize: settings.flakeSize,
                                melt: settings.melt, tree: settings.tree, frost: settings.frost, sparkle: settings.sparkle,
-                               season: season.rawValue, evening: evening)
+                               season: season.rawValue, evening: evening, creatures: settings.creatures)
         // The menu bar icon follows the season too.
         let symbol = ["snowflake", "camera.macro", "sun.max", "leaf"][season.rawValue]
         if let button = statusItem?.button, button.image?.accessibilityDescription != symbol {
@@ -398,6 +398,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let decor = [L("Ёлка в углу экрана", "Christmas tree in the corner"), L("Сакура в углу экрана", "Cherry tree in the corner"),
                      L("Подсолнухи в углу экрана", "Sunflowers in the corner"), L("Тыквы в углу экрана", "Pumpkins in the corner")][now.rawValue]
         m.addItem(MenuAction(decor, checked: s.tree) { s.tree.toggle() })
+        m.addItem(MenuAction(L("Бабочки и светлячки", "Butterflies and fireflies"), checked: s.creatures) { s.creatures.toggle() })
         m.addItem(.separator())
         for line in [L("❄️ Зима — снег, снеговики, ёлка, гирлянда", "❄️ Winter — snow, snowmen, a tree, a garland"),
                      L("🌸 Весна — лепестки сакуры и бабочки", "🌸 Spring — cherry petals and butterflies"),

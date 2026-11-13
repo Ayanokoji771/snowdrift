@@ -51,6 +51,8 @@ namespace Snowdrift
         public bool GesturesRemovedNoticeShown { get; set; } = false;
         /// <summary>-1 follows the calendar; 0 winter, 1 spring, 2 summer, 3 autumn.</summary>
         public int Season { get; set; } = -1;
+        /// <summary>Butterflies (spring and summer days) and fireflies (summer evenings).</summary>
+        public bool Creatures { get; set; } = true;
         /// <summary>Install new versions on their own (restarting while the computer is idle).</summary>
         public bool AutoUpdate { get; set; } = true;
         /// <summary>Ask GitHub once a day whether a new version is out.</summary>

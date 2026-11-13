@@ -28,11 +28,13 @@ namespace Snowdrift
         public int Season { get; set; }
         /// <summary>Evening or night (fireflies).</summary>
         public bool Evening { get; set; }
+        /// <summary>Butterflies and fireflies.</summary>
+        public bool Creatures { get; set; }
 
         public static SimConfig Default => new SimConfig
         {
             Intensity = 1, Wind = 1, Drifts = 2, Tool = 0, Garland = 2, Depth = true,
-            LowPower = false, FlakeSize = 1, Melt = false, Tree = true, Frost = false, Sparkle = true,
+            LowPower = false, FlakeSize = 1, Melt = false, Tree = true, Frost = false, Sparkle = true, Creatures = true,
         };
     }
 
@@ -658,7 +660,7 @@ namespace Snowdrift
             StepDebris(dt);
             Relax();
             StepBalls(dt, cursorSpeed);
-            Festive.Step(dt, Season, config.Tree, config.Evening, cursorInside ? cx : (float?)null, cy, occluders);
+            Festive.Step(dt, Season, config.Tree, config.Evening, config.Creatures, cursorInside ? cx : (float?)null, cy, occluders);
             if (config.Melt) Melt(dt);
 
             // What is under the cursor.

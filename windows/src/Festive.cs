@@ -28,8 +28,9 @@ namespace Snowdrift
         public int Season { get; private set; }
         private bool evening;
         private List<FRect> occluders = new List<FRect>();
+        private bool creatures = true;
 
-        public void Step(float dt, int season, bool showDecor, bool evening, float? cursorX, float cursorY, List<FRect> occluders)
+        public void Step(float dt, int season, bool showDecor, bool evening, bool creatures, float? cursorX, float cursorY, List<FRect> occluders)
         {
             time += dt;
             if (season != Season)
@@ -42,6 +43,12 @@ namespace Snowdrift
             }
             this.evening = evening;
             this.occluders = occluders;
+            if (!creatures)
+            {
+                butterflies.Clear();
+                fireflies.Clear();
+            }
+            this.creatures = creatures;
             StepFireworks(dt);
             bool free = true;
             foreach (var o in occluders)
@@ -659,7 +666,7 @@ namespace Snowdrift
 
         private void StepButterflies(float dt, float? cursorX, float cursorY)
         {
-            bool welcome = (Season == 1 || Season == 2) && !evening;
+            bool welcome = creatures && (Season == 1 || Season == 2) && !evening;
             if (welcome && time > nextButterfly && butterflies.Count < 3)
             {
                 bool fromLeft = rng.Unit() < 0.5f;
@@ -720,7 +727,7 @@ namespace Snowdrift
 
         private void StepFireflies(float dt, float? cursorX, float cursorY)
         {
-            int wanted = Season == 2 && evening ? Math.Max(12, (int)(W * H / 45000)) : 0;
+            int wanted = creatures && Season == 2 && evening ? Math.Max(12, (int)(W * H / 45000)) : 0;
             if (fireflies.Count < wanted && rng.Unit() < dt * 3)
                 fireflies.Add(new Firefly { X = rng.Range(0, W), Y = rng.Range(H * 0.35f, H * 0.95f), Phase = rng.Range(0, 6.28f), Speed = rng.Range(1.2f, 2.6f) });
             else if (fireflies.Count > wanted && rng.Unit() < dt * 2)
